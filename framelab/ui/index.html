@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Night City Frame Lab</title>
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="uPlot.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="logo">NIGHT CITY <b>FRAME LAB</b></div>
+  <nav id="tabs">
+    <button data-tab="capture" class="on">Capture</button>
+    <button data-tab="sessions">Sessions</button>
+    <button data-tab="compare">Compare</button>
+    <button data-tab="mods">Mods</button>
+    <button data-tab="conflicts">Conflicts</button>
+    <button data-tab="vram">VRAM</button>
+    <button data-tab="experiments">Experiments</button>
+    <button data-tab="settings">Settings</button>
+  </nav>
+  <div id="topstatus" class="topstatus"></div>
+</header>
+<div id="banner" class="banner hidden"></div>
+<main>
+  <section id="tab-capture" class="tab on"></section>
+  <section id="tab-sessions" class="tab"></section>
+  <section id="tab-compare" class="tab"></section>
+  <section id="tab-mods" class="tab"></section>
+  <section id="tab-conflicts" class="tab"></section>
+  <section id="tab-vram" class="tab"></section>
+  <section id="tab-experiments" class="tab"></section>
+  <section id="tab-settings" class="tab"></section>
+</main>
+<div id="toast" class="toast hidden"></div>
+<div id="modal" class="modal hidden"><div class="modal-box"><div id="modal-text"></div><div class="modal-buttons"><button id="modal-no" class="btn2">Cancel</button><button id="modal-yes" class="btn">OK</button></div></div></div>
+<script src="uPlot.iife.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
