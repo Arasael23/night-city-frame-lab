@@ -5,6 +5,9 @@ PresentMon 2.6.0 - Intel Corporation, MIT licence (see PresentMon\license.txt).
 
 uPlot 1.6.32 - Leon Sorokin, MIT licence (embedded in the exe).
 
+Inter 4.0 - The Inter Project Authors, SIL Open Font License 1.1 (cut down to the characters
+the window uses, embedded in the exe; licences\Inter-OFL.txt).
+
 go-webview2 - John Chadwick, MIT licence; includes Microsoft's WebView2Loader (embedded in the exe).
 go-winloader - John Chadwick, ISC licence (used by go-webview2; licences\go-winloader.LICENSE.txt).
 WebView2Loader - Microsoft, WebView2 SDK licence (licences\WebView2Loader.LICENSE.txt).
@@ -18,5 +21,8 @@ HitchRecorder's script timing is original code. Ideas and data layouts it relies
   - LuaJIT (Mike Pall, MIT) as built into Cyber Engine Tweaks (yamashi and contributors, MIT): the
     VM's entry for protected calls and its function/prototype layout, read to time CET mods.
   Nothing of these projects is copied into HitchRecorder.
+
+Radeon cards are read through AMD's own amdadlx64.dll (installed with the AMD driver). The layout of
+its interfaces follows the AMD ADLX SDK headers (AMD, MIT licence); nothing of the SDK is included.
 
 File names in reports come from WolvenKit's own path list, read from the WolvenKit install on this PC.

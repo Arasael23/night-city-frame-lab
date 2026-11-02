@@ -1,4 +1,4 @@
-Night City Frame Lab 1.0.0
+Night City Frame Lab 1.1.0
 ==========================
 
 A stutter and performance recorder for Cyberpunk 2077 with mods. One window records the game with
@@ -22,10 +22,14 @@ Requirements
   - RED4ext, for the engine recorder (HitchRecorder). Without it you still get frame times,
     GPU and PC readings and the Windows events.
   - Cyber Engine Tweaks (optional): loading-screen markers and CET Lua time per mod need it.
-  - Made and tested on game version 2.31 with an NVIDIA card. On another game version the engine
-    recorder leaves out the parts it can't find and says so in its log. GPU clocks, power,
-    temperature and throttling come from NVIDIA's driver; on AMD and Intel cards that part is
-    not recorded and the rest is untested so far.
+  - Made and tested on game version 2.31 with an NVIDIA card (players report 2.5 works too). On
+    another game version the engine recorder leaves out the parts it can't find and says so in
+    its log.
+  - AMD and Intel cards (new in 1.1, beta): GPU readings come from AMD's driver (ADLX, part of
+    AMD Software: Adrenalin Edition) on Radeon cards, and from Windows on any card. The Capture
+    tab shows which readings your card gives. Why a card lowered its clocks (power limit, heat)
+    is NVIDIA only. If the GPU readings look wrong on your card, run components\GPU check.exe
+    (changes nothing) and post the GPU check.txt it writes next to itself in the Bugs tab.
 
 
 Install
@@ -40,7 +44,7 @@ Install
 
 
 Record a session
-  1. Capture tab: pick the build, name the session, press START SESSION (game closed).
+  1. Capture tab: pick the build, name the session, press Start session (game closed).
   2. Start the game and play. Everything records by itself until you quit.
   3. Optional: press F11 at a spot that stutters to mark it, F11 again ends the mark.
      Script time per mod (REDscript and CET) is measured only inside the marked parts.
@@ -67,7 +71,10 @@ What it puts into the game folder, for one session only
 
 What runs outside the game during a session
   - PresentMon (bundled): real frame times, GPU time per frame, frame generation.
-  - NVIDIA's driver (NVML): GPU clock, power, temperature, throttling, VRAM.
+  - The graphics driver: NVIDIA's NVML, or AMD's ADLX on Radeon cards: GPU clock, power,
+    temperature, VRAM (NVIDIA also says why it lowered its clocks).
+  - Windows' GPU readings, for any card: GPU usage and VRAM (Task Manager's numbers), and
+    temperature and clock where the driver reports them.
   - Windows performance counters: game CPU, busiest core, disk reads, free RAM, graphics memory
     of every program.
   - Windows event tracing (kernel): how long each driver held the CPU, memory read back from the
@@ -90,7 +97,7 @@ Mods tab
 
 
 Conflicts tab (no game needed)
-  Pick a build, press CHECK BUILD (a few seconds). It reads the build's files and lists:
+  Pick a build, press Check build (a few seconds). It reads the build's files and lists:
   - Archives: two mods that replace the same game file. The archive that loads first is used (ASCII
     order of the file name in archive\pc\mod, or modlist.txt if you have one; REDmod folders after),
     the other one's copy is ignored. Shows which files, and how many of them the game actually loaded
@@ -107,11 +114,11 @@ VRAM tab (no game needed)
   - Programs on the graphics card: every program that holds graphics memory right now, on which
     card, and the graphics setting Windows has for it. Programs that don't need the main card
     (browsers, Discord, launchers) can be moved to the processor's integrated graphics, one by one
-    or with MOVE ALL SUGGESTED. It is the same per-program setting as Windows Settings > System >
+    or with Move all suggested. It is the same per-program setting as Windows Settings > System >
     Display > Graphics > Power saving and applies the next time that program starts. Undo puts
     back exactly what was there. The game, recorders (OBS, NVIDIA's apps) and Windows' own parts
     are never moved. Needs integrated graphics switched on; the tab says how if it isn't.
-  - SCAN BUILD: adds up the textures and meshes each mod sends to the graphics card, finds
+  - Scan build: adds up the textures and meshes each mod sends to the graphics card, finds
     textures without mip levels (always loaded at full size) and, with a session of that build,
     how much of it the game really loaded.
 
@@ -125,7 +132,7 @@ Experiments tab
 
 Folders
   Sessions\      one folder per session (raw data, markers, analysis.json, exported HTML report)
-  components\    HitchRecorder, FrameLabMarkers, PresentMon, licences
+  components\    HitchRecorder, FrameLabMarkers, PresentMon, GPU check, licences
   data\          the file-name list, scan results, experiments and graphics settings changed, framelab.log
   FrameLab.settings.json   your settings (created when you save in the Settings tab)
 
@@ -142,12 +149,19 @@ Uninstall
 
 If something goes wrong
   data\framelab.log has every step. HitchRecorder's own log is copied into each session (hitch.log).
+  Wrong or missing GPU readings: run components\GPU check.exe and post GPU check.txt in the Bugs tab.
 
 
 Credits
   PresentMon by Intel (MIT). uPlot by Leon Sorokin (MIT). go-webview2 by John Chadwick (MIT).
+  Inter font by The Inter Project Authors (SIL OFL 1.1).
   golang.org/x/sys (BSD-3). HitchRecorder uses MinHook by Tsuda Kageyu (BSD-2).
   Mapping script functions to their .reds files at load is an idea from jekky's redscript-dap (MIT);
   the CET part reads LuaJIT's data layout (LuaJIT and Cyber Engine Tweaks are MIT). Game function
   hashes come from ArchiveXL and RED4ext.SDK. Licences in components\licences and
   components\THIRD_PARTY.txt.
+
+
+Licence
+  Night City Frame Lab 1.1.0 and later: all rights reserved. The source is on GitHub to read and
+  check, not to reuse, modify or re-upload anywhere without permission. Version 1.0.0 stays MIT.
