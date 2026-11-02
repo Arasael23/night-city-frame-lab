@@ -152,8 +152,14 @@ function layerRows(st, b) {
   else add(st.admin ? 'g' : 'y', 'Windows events', 'outside', 'Which drivers ran interrupts / DPCs and for how long, memory read back from disk (hard page faults) and disk use per program: for the stutters nothing in the game explains.' + (st.admin ? '' : ' Needs admin.'));
   if (!comp.presentmon.found) add('r', 'Frames + GPU time', 'outside', 'PresentMon not found (CapFrameX\\PresentMon or components\\PresentMon).');
   else add(st.admin ? 'g' : 'y', 'Frames + GPU time', 'outside', esc(comp.presentmon.name) + ': real frame times, GPU busy per frame, frame-gen frames.' + (st.admin ? '' : ' Needs admin.'));
-  const pc = st.live.pc;
-  add(pc ? 'g' : 'y', 'GPU health', 'outside', pc ? esc(st.gpu) + ': clock, power, temperature, throttling, VRAM.' : 'NVIDIA driver (NVML) not available.');
+  const gi = st.gpu_info || {};
+  if (!gi.name) add('y', 'GPU health', 'outside', esc(gi.note || 'No graphics card found.'));
+  else {
+    const reads = gi.reads || [], miss = ['clock', 'temperature', 'power'].filter(x => !reads.includes(x));
+    if (!reads.includes('slowdown reasons')) miss.push('slowdown reasons (NVIDIA only)');
+    add(gi.vendor === 'nvidia' && !gi.note ? 'g' : 'y', 'GPU health', 'outside', esc(gi.name) + ' (' + esc(gi.source) + '): ' + esc(reads.join(', ')) + '.' +
+      (miss.length ? ' Not given by this card: ' + esc(miss.join(', ')) + '.' : '') + (gi.vendor && gi.vendor !== 'nvidia' ? ' AMD and Intel cards are new in 1.1 (beta).' : '') + (gi.note ? ' ' + esc(gi.note) : ''));
+  }
   add('g', 'Other programs on the card', 'outside', 'Every 2 s: how much graphics memory each other program holds on the game\'s card (browsers, Discord, OBS ...). The VRAM tab shows it live and can move programs to the integrated graphics.');
   add('g', 'PC side', 'outside', 'Windows counters: game CPU, busiest core, disk reads, RAM, other apps on the GPU (OBS).');
   add(st.components.library.found ? 'g' : st.config.library ? 'y' : '', 'Mod names', 'offline', st.components.library.found ? 'Files and scripts traced back to the library zips in ' + esc(st.components.library.path) + '.' : (st.config.library ? 'Library folder not found: ' + esc(st.config.library) + ' (Settings).' : 'Optional: a folder with your downloaded mod zips (Settings) shows which download each file came from. Without it mods are named by their files.'));
@@ -219,7 +225,7 @@ function renderCapture() {
   if (c.state === 'done') btn = `<button class="btn" data-act="open-report">Open the report</button><button class="btn2" data-act="reset">New session</button>`;
   else if (armed) btn = `<button class="btn2" data-act="disarm" ${st.game.running ? 'disabled title="Quit the game: the session finishes and cleans up by itself"' : ''}>Cancel and remove</button>`;
   else if (c.state === 'error') btn = `<button class="btn2" data-act="disarm">Try removing again</button><button class="btn2" data-act="reset">Clear</button>`;
-  else btn = `<button class="btn" data-act="arm" ${busy || st.game.running || !active || !active.exists ? 'disabled' : ''}>● START SESSION</button>
+  else btn = `<button class="btn" data-act="arm" ${busy || st.game.running || !active || !active.exists ? 'disabled' : ''}>● Start session</button>
       ${st.game.running ? '<span class="dim small">Close the game to start a session.</span>' : '<span class="dim small">F11 in game = mark a spot (optional)</span>'}`;
   const bEl = $('#cap-buttons');
   if (bEl.dataset.html !== btn) { bEl.innerHTML = btn; bEl.dataset.html = btn; }
@@ -245,9 +251,11 @@ function renderCapture() {
   } else {
     live += '<div class="dim">Shows the game\'s frame rate, VRAM and spikes while it runs.</div>';
   }
-  if (pc.gpu_clock != null) {
-    live += '<div class="kpi" style="margin-top:10px">' + k('GPU clock', fmt.n(Math.round(pc.gpu_clock)) + ' MHz', pc.throttle ? 'slowing down' : '', pc.throttle ? 'warn' : '') +
-      k('GPU temp', fmt.p(pc.gpu_temp, 0) + ' °C') + k('GPU power', fmt.p(pc.gpu_power, 0) + ' W', 'load ' + fmt.p(pc.gpu_util, 0) + '%') +
+  const got = v => v != null && v > 0; // readings this card's driver gives
+  if (pc.vram_total != null || got(pc.gpu_clock)) {
+    live += '<div class="kpi" style="margin-top:10px">' + (got(pc.gpu_clock) ? k('GPU clock', fmt.n(Math.round(pc.gpu_clock)) + ' MHz', pc.throttle ? 'slowing down' : '', pc.throttle ? 'warn' : '') : '') +
+      (got(pc.gpu_temp) ? k('GPU temp', fmt.p(pc.gpu_temp, 0) + ' °C') : '') +
+      (got(pc.gpu_power) ? k('GPU power', fmt.p(pc.gpu_power, 0) + ' W', 'load ' + fmt.p(pc.gpu_util, 0) + '%') : k('GPU load', fmt.p(pc.gpu_util, 0) + '%')) +
       k('VRAM (all)', fmt.mb(pc.vram_used), 'of ' + fmt.mb(pc.vram_total)) + '</div>';
     if (pc.disk != null || pc.other_gpu != null) live += `<div class="dim small" style="margin-top:8px">game CPU ${fmt.p(pc.game_cpu, 0)}% · disk ${fmt.p(pc.disk, 0)} MB/s · other apps on GPU ${fmt.p(pc.other_gpu, 0)}%</div>`;
   }
@@ -376,13 +384,13 @@ function renderReport(el, r, reportOnly) {
       ${kpiBox('VRAM peak (game)', k.vram_peak_mb ? fmt.mb(k.vram_play_peak_mb || k.vram_peak_mb) : '–', (k.vram_budget_mb ? 'budget ' + fmt.mb(k.vram_budget_mb) : '') + (k.resets && k.vram_play_peak_mb && k.vram_play_peak_mb < k.vram_peak_mb - 300 ? ' · ' + fmt.mb(k.vram_peak_mb) + ' during screen resets' : '') + (k.others_vram_mb ? ' · rest of the card ' + fmt.mb(k.others_vram_mb) : ''), vramCls)}
       ${kpiBox('script time', ((k.redscript_ms_per_s || 0) + (k.cet_ms_per_s || 0)).toFixed(1) + ' ms/s', 'REDscript ' + fmt.p(k.redscript_ms_per_s) + ' · CET ' + fmt.p(k.cet_ms_per_s))}
       ${r.pacing ? kpiBox('frames shown', fmt.fps(r.pacing.shown_fps), r.pacing.vrr ? 'VRR: shown when ready' : r.pacing.refresh_hz ? (r.pacing.held_pct || 0).toFixed(1) + '% held twice · fixed ' + r.pacing.refresh_hz + ' Hz' : '', !r.pacing.vrr && r.pacing.held_pct >= 5 ? 'warn' : '') : ''}
-      ${kpiBox('GPU temp max', k.gpu_temp_max ? k.gpu_temp_max.toFixed(0) + ' °C' : '–', k.throttle_serious ? 'slowed by: ' + esc(k.throttle) : k.throttle ? 'ran into its power limit (normal at full load)' : 'no slowdown seen', k.throttle_serious ? 'warn' : '')}
+      ${kpiBox('GPU temp max', k.gpu_temp_max ? k.gpu_temp_max.toFixed(0) + ' °C' : '–', k.throttle_serious ? 'slowed by: ' + esc(k.throttle) : k.throttle ? 'ran into its power limit (normal at full load)' : k.slowdown_known !== false ? 'no slowdown seen' : k.gpu_temp_max ? 'slowdown reasons: NVIDIA cards only' : 'not given by this card', k.throttle_serious ? 'warn' : '')}
     </div>
     ${adviceHtml(r, reportOnly)}
-    <div class="card chart-card"><div class="chart-top"><div class="legend"><span><i style="background:${css('--yellow')}"></i>frame time</span>${hasGpu ? `<span><i style="background:${css('--orange')}"></i>GPU busy</span>` : '<span class="dimmer" title="PresentMon could not tell GPU time apart with frame generation on">GPU busy: not recorded (frame generation)</span>'}${legend}${(r.timeline.not_playing || []).length ? '<span><i style="background:rgba(140,150,170,0.45)"></i>loading / menu (left out)</span>' : ''}${(r.timeline.focus || []).length ? '<span><i style="background:rgba(255,216,74,0.35)"></i>F11 marked</span>' : ''}${(r.timeline.resets || []).some(x => x.playing) ? `<span><i style="background:${css('--c-reset')}"></i>screen reset</span>` : ''}</div><button class="btn2 small" id="ch-all" style="display:none">Show all</button></div>
+    <div class="card chart-card"><div class="chart-top"><div class="legend"><span><i style="background:${css('--accent')}"></i>frame time</span>${hasGpu ? `<span><i style="background:${css('--orange')}"></i>GPU busy</span>` : '<span class="dimmer" title="PresentMon could not tell GPU time apart with frame generation on">GPU busy: not recorded (frame generation)</span>'}${legend}${(r.timeline.not_playing || []).length ? '<span><i style="background:rgba(150,150,145,0.45)"></i>loading / menu (left out)</span>' : ''}${(r.timeline.focus || []).length ? '<span><i style="background:rgba(47,196,185,0.35)"></i>F11 marked</span>' : ''}${(r.timeline.resets || []).some(x => x.playing) ? `<span><i style="background:${css('--c-reset')}"></i>screen reset</span>` : ''}</div><button class="btn2 small" id="ch-all" style="display:none">Show all</button></div>
       <div class="readout" id="ch-read">Drag across any chart to zoom in · double-click or <b>Show all</b> to zoom out · click a spike bar for its details · move the mouse over a chart to read the values here</div><div id="ch-main"></div></div>
     <div class="grid3" style="grid-template-columns:1fr 1fr 1fr"><div class="card chart-card"><div class="legend"><span><i style="background:#8cc4ff"></i>VRAM used by the game</span><span><i style="background:${css('--red')}"></i>budget</span>${(r.timeline.vram_others_mb || []).length ? '<span><i style="background:#f0a6ff"></i>everything else on the card (right axis)</span>' : ''}</div><div id="ch-vram"></div></div>
-      <div class="card chart-card"><div class="legend"><span><i style="background:#c3a6ff"></i>GPU clock (MHz)</span><span><i style="background:#ff9a6b"></i>GPU temp (°C)</span></div><div id="ch-gpu"></div></div>
+      <div class="card chart-card"><div class="legend">${(r.timeline.clock_mhz || []).length ? '<span><i style="background:#c3a6ff"></i>GPU clock (MHz)</span>' : ''}${(r.timeline.temp_c || []).length ? '<span><i style="background:#ff9a6b"></i>GPU temp (°C)</span>' : ''}${!(r.timeline.clock_mhz || []).length || !(r.timeline.temp_c || []).length ? '<span class="dimmer">' + [(r.timeline.clock_mhz || []).length ? '' : 'clock', (r.timeline.temp_c || []).length ? '' : 'temperature'].filter(Boolean).join(' and ') + ': not given by this card</span>' : ''}</div><div id="ch-gpu"></div></div>
       <div class="card chart-card"><div class="legend"><span><i style="background:${css('--amber')}"></i>disk reads (MB/s)</span><span><i style="background:#7ee0c8"></i>game CPU (%)</span><span><i style="background:#ff9aa8"></i>other apps on GPU (%)</span></div><div id="ch-pc"></div></div></div>
     <div class="grid3" style="grid-template-columns:1fr 1fr 1fr"><div class="card chart-card"><div class="legend"><span><i style="background:#9fe870"></i>CPU clock (MHz)</span><span><i style="background:#ffb36b"></i>cores at 90%+</span></div><div id="ch-cpu"></div></div>
       <div class="card chart-card"><div class="legend"><span><i style="background:#ff6b8a"></i>driver interrupts / DPC (% of CPU)</span><span><i style="background:#b0a0ff"></i>game GPU memory in system RAM (MB)</span>${(r.timeline.ram_free_mb || []).length ? '<span><i style="background:#9adf8f"></i>free system RAM (MB)</span>' : ''}</div><div id="ch-win"></div></div>
@@ -517,10 +525,10 @@ function renderModTable(el, mods, limit) {
 function drawCharts(el, r) {
   const tl = r.timeline || {};
   const W = Math.max(400, $('#ch-main', el).clientWidth - 4);
-  const axisStroke = css('--dim'), grid = { stroke: '#1d2433', width: 1 };
+  const axisStroke = css('--dim'), grid = { stroke: '#2a2c2f', width: 1 }, axFont = '12px Inter, "Segoe UI", Arial, sans-serif';
   // time labels: whole seconds normally, tenths once zoomed in to under half a minute
   const tvals = (u, v) => { const span = u.scales.x.max - u.scales.x.min; return v.map(x => span < 30 ? fmt.t(x) : fmt.t(x).replace(/\.\d$/, '')); };
-  const axes = (yl) => [{ stroke: axisStroke, grid, ticks: grid, values: tvals }, { stroke: axisStroke, grid, ticks: grid, label: yl, size: 50 }];
+  const axes = (yl) => [{ stroke: axisStroke, font: axFont, labelFont: axFont, grid, ticks: grid, values: tvals }, { stroke: axisStroke, font: axFont, labelFont: axFont, grid, ticks: grid, label: yl, size: 50 }];
   const sync = uPlot.sync('fl');
   // a drag has to be at least 10 px to zoom, so a click (which often moves a pixel) never zooms in by accident
   const tFull = [Math.min(...[tl.t, tl.vram_t, tl.samp_t].filter(a => a && a.length).map(a => a[0])), Math.max(...[tl.t, tl.vram_t, tl.samp_t].filter(a => a && a.length).map(a => a[a.length - 1]))];
@@ -552,7 +560,7 @@ function drawCharts(el, r) {
     const rs = (tl.resets || []).find(x => Math.abs(x.t - t) < Math.max(0.5, (S.mainChart ? (S.mainChart.scales.x.max - S.mainChart.scales.x.min) / 300 : 1)));
     if (rs) parts.push('<span style="color:var(--c-reset)">screen reset ' + esc(rs.clock) + '</span>');
     if (inList(tl.not_playing)) parts.push('<span class="dimmer">loading / menu</span>');
-    if (inList(tl.focus)) parts.push('<span style="color:var(--yellow)">F11 mark</span>');
+    if (inList(tl.focus)) parts.push('<span style="color:var(--accent)">F11 mark</span>');
     box.innerHTML = parts.join(' · ');
   };
   const zoomed = (u) => { const b = $('#ch-all', el); if (b) b.style.display = (u.scales.x.max - u.scales.x.min) < (tFull[1] - tFull[0]) * 0.98 ? '' : 'none'; };
@@ -564,11 +572,11 @@ function drawCharts(el, r) {
     c.save();
     const band = (list, fill) => { c.fillStyle = fill; list.forEach(g => { const a = u.valToPos(g[0], 'x', true), b = u.valToPos(g[1], 'x', true); c.fillRect(a, u.bbox.top, Math.max(1, b - a), u.bbox.height); }); };
     band(gaps, 'rgba(255,255,255,0.04)');
-    band(notPlay, 'rgba(140,150,170,0.16)');
-    band(focus, 'rgba(255,216,74,0.10)');
+    band(notPlay, 'rgba(150,150,145,0.14)');
+    band(focus, 'rgba(47,196,185,0.08)');
     (r.markers || []).forEach(m => {
       const x = u.valToPos(m.t, 'x', true);
-      c.strokeStyle = m.kind === 'mark' ? css('--yellow') : '#3a4560';
+      c.strokeStyle = m.kind === 'mark' ? css('--accent') : '#4a4c50';
       c.setLineDash([3, 4]); c.lineWidth = 1;
       c.beginPath(); c.moveTo(x, u.bbox.top); c.lineTo(x, u.bbox.top + u.bbox.height); c.stroke();
     });
@@ -591,7 +599,7 @@ function drawCharts(el, r) {
     const spikes = r.spikes || [];
     const u = new uPlot({
       width: W, height: 300, cursor, scales: { x: { time: false }, y: { range: (u, lo, hi) => [0, Math.min(Math.max(40, (hi || 0) * 1.12), yMax)] } }, axes: axes('ms'),
-      series: [{}, { label: 'frame', stroke: css('--yellow'), width: 1.2, points: { show: false } },
+      series: [{}, { label: 'frame', stroke: css('--accent'), width: 1.2, points: { show: false } },
         { label: 'GPU', stroke: css('--orange'), width: 1, points: { show: false } }],
       hooks: {
         drawClear: [shadeGaps],
@@ -634,19 +642,26 @@ function drawCharts(el, r) {
     sync.sub(u);
     S.charts.push(u);
   };
-  const ax2 = (l1, l2) => [{ stroke: axisStroke, grid, ticks: grid, values: tvals },
-    { stroke: axisStroke, grid, ticks: grid, label: l1, size: 50, scale: 'a' }, { side: 1, stroke: axisStroke, grid: { show: false }, label: l2, size: 45, scale: 'b' }];
+  const ax2 = (l1, l2) => [{ stroke: axisStroke, font: axFont, labelFont: axFont, grid, ticks: grid, values: tvals },
+    { stroke: axisStroke, font: axFont, labelFont: axFont, grid, ticks: grid, label: l1, size: 50, scale: 'a' }, { side: 1, stroke: axisStroke, font: axFont, labelFont: axFont, grid: { show: false }, label: l2, size: 54, scale: 'b' }];
   const vo = (tl.vram_others_mb || []).length === (tl.vram_t || []).length && (tl.vram_t || []).length > 0;
   const gAx = (u, v) => v.map(x => (x / 1024).toFixed(1) + 'G');
   small('#ch-vram', vo ? [tl.vram_t, tl.vram_mb || [], tl.budget_mb || [], tl.vram_others_mb] : [tl.vram_t || [], tl.vram_mb || [], tl.budget_mb || []],
     [{ stroke: '#8cc4ff', width: 1.3, scale: 'y', points: { show: false } }, { stroke: css('--red'), width: 1, dash: [5, 4], scale: 'y', points: { show: false } }]
       .concat(vo ? [{ stroke: '#f0a6ff', width: 1, scale: 'o', points: { show: false } }] : []),
     { y: { range: (u, a, b) => [Math.max(0, Math.min(a, b) * 0.9), Math.max(a, b) * 1.04] }, o: { range: (u, a, b) => [0, Math.max(1024, b * 1.25)] } },
-    [{ stroke: axisStroke, grid, ticks: grid, values: tvals }, { stroke: axisStroke, grid, ticks: grid, size: 50, values: gAx }]
-      .concat(vo ? [{ side: 1, stroke: axisStroke, grid: { show: false }, size: 45, scale: 'o', values: gAx }] : []));
-  small('#ch-gpu', [tl.samp_t || [], tl.clock_mhz || [], tl.temp_c || []],
-    [{ stroke: '#c3a6ff', width: 1, scale: 'a', points: { show: false } }, { stroke: '#ff9a6b', width: 1, scale: 'b', points: { show: false } }],
-    { a: { range: (u, a, b) => [Math.max(0, a * 0.9), b * 1.05] }, b: { range: (u, a, b) => [Math.max(0, a - 5), b + 5] } }, ax2('MHz', '°C'));
+    [{ stroke: axisStroke, font: axFont, labelFont: axFont, grid, ticks: grid, values: tvals }, { stroke: axisStroke, font: axFont, labelFont: axFont, grid, ticks: grid, size: 50, values: gAx }]
+      .concat(vo ? [{ side: 1, stroke: axisStroke, font: axFont, labelFont: axFont, grid: { show: false }, size: 45, scale: 'o', values: gAx }] : []));
+  {
+    const hc = (tl.clock_mhz || []).length > 0, ht = (tl.temp_c || []).length > 0;
+    const clockS = { stroke: '#c3a6ff', width: 1, scale: 'a', points: { show: false } }, tempS = { stroke: '#ff9a6b', width: 1, scale: 'b', points: { show: false } };
+    const sc = { a: { range: (u, a, b) => [Math.max(0, a * 0.9), b * 1.05] }, b: { range: (u, a, b) => [Math.max(0, a - 5), b + 5] } };
+    const one = (scale, label) => [{ stroke: axisStroke, font: axFont, labelFont: axFont, grid, ticks: grid, values: tvals }, { stroke: axisStroke, font: axFont, labelFont: axFont, grid, ticks: grid, label, size: 50, scale }];
+    if (hc && ht) small('#ch-gpu', [tl.samp_t, tl.clock_mhz, tl.temp_c], [clockS, tempS], sc, ax2('MHz', '°C'));
+    else if (hc) small('#ch-gpu', [tl.samp_t, tl.clock_mhz], [clockS], sc, one('a', 'MHz'));
+    else if (ht) small('#ch-gpu', [tl.samp_t, tl.temp_c], [tempS], sc, one('b', '°C'));
+    else { const h = $('#ch-gpu', el); if (h) h.innerHTML = '<div class="empty" style="padding:20px">This card\'s driver gives no clock or temperature to Frame Lab.</div>'; }
+  }
   small('#ch-pc', [tl.samp_t || [], tl.disk_mbs || [], tl.cpu_pct || [], tl.other_gpu_pct || []],
     [{ stroke: css('--amber'), width: 1, scale: 'a', points: { show: false } }, { stroke: '#7ee0c8', width: 1, scale: 'b', points: { show: false } },
       { stroke: '#ff9aa8', width: 1, scale: 'b', points: { show: false } }],
@@ -776,11 +791,11 @@ async function renderVram() {
   if (busy) { clearTimeout(S.vrTimer); S.vrTimer = setTimeout(() => { if (S.tab === 'vram') renderVram(); }, 1000); }
   const gb = (mb) => mb >= 1024 ? (mb / 1024).toFixed(2) + ' GB' : mb.toFixed(0) + ' MB';
   let html = `<div class="rep-head"><div class="title">VRAM</div>
-    <div class="cf-builds">${st.config.builds.map((b, i) => `<button class="btn2 small" data-b="${i}" style="${i === S.vrBuild ? 'border-color:var(--yellow);color:var(--white)' : ''}">${esc(b.name)}</button>`).join('')}</div>
-    <div class="actions"><button class="btn" id="vr-run" ${busy ? 'disabled' : ''}>${busy ? 'SCANNING ...' : 'SCAN BUILD'}</button></div></div>`;
+    <div class="cf-builds">${st.config.builds.map((b, i) => `<button class="btn2 small" data-b="${i}" style="${i === S.vrBuild ? 'border-color:var(--accent);color:var(--white)' : ''}">${esc(b.name)}</button>`).join('')}</div>
+    <div class="actions"><button class="btn" id="vr-run" ${busy ? 'disabled' : ''}>${busy ? 'Scanning ...' : 'Scan build'}</button></div></div>`;
   if (v.state && v.state.startsWith('error')) html += `<div class="card"><span class="lose">${esc(v.state)}</span></div>`;
   if (!r) {
-    html += `<div class="card dim">Not scanned yet. SCAN BUILD reads the file tables of the build's mod archives (a few seconds, nothing is unpacked) and adds up the data each mod sends to the graphics card: textures and meshes. With a session of this build it also shows how much of it the game actually loaded.</div>`;
+    html += `<div class="card dim">Not scanned yet. Scan build reads the file tables of the build's mod archives (a few seconds, nothing is unpacked) and adds up the data each mod sends to the graphics card: textures and meshes. With a session of this build it also shows how much of it the game actually loaded.</div>`;
     root.innerHTML = html; bindVram(root); return;
   }
   const k = (l, val, s, cls) => `<div class="k ${cls || ''}"><div class="l">${l}</div><div class="v">${val}</div>${s ? '<div class="s">' + s + '</div>' : ''}</div>`;
@@ -818,19 +833,20 @@ async function renderGpuApps(note) {
   const gb = (mb) => mb >= 1000 ? (mb / 1024).toFixed(2) + ' GB' : Math.round(mb) + ' MB';
   const k = (l, val, sub, cls) => `<div class="k ${cls || ''}"><div class="l">${l}</div><div class="v">${val}</div>${sub ? '<div class="s">' + sub + '</div>' : ''}</div>`;
   const main = g.main, ig = g.integrated;
+  const cardWord = !main || main.vendor === 0x10de ? 'the NVIDIA card' : 'the game\'s card';
   const short = (n) => (n || '').replace(/^NVIDIA GeForce /, '').replace(/^AMD Radeon\(TM\) /, 'Radeon ').replace(/^Intel\(R\) /, 'Intel ');
   const prefTxt = (a) => a.pref === '1' ? 'Power saving' : a.pref === '2' ? 'High performance' : a.pref === '0' ? 'Let Windows decide' :
     a.pref === '1073741824' ? 'Chosen GPU: ' + esc(short(a.pref_gpu) || 'another card') : a.pref ? 'other (' + esc(a.pref) + ')' : '<span class="dimmer">not set</span>';
   const list = g.apps || [];
   const sugg = list.filter(a => a.class === 'suggest' && a.can && a.running && !a.to_igpu && !a.shared && a.main_mb >= 20);
   let html = `<div class="card" style="margin-bottom:14px"><div class="rep-head" style="margin-bottom:8px"><div class="title">Programs on the graphics card</div><span class="dimmer small">${playing ? 'paused while the game runs · ' + new Date().toLocaleTimeString('en-AU') : 'right now · refreshes every 5 s'}</span>
-    <div class="actions">${playing ? '<button class="btn2" id="ga-refresh">REFRESH</button>' : ''}<button class="btn" id="ga-all" ${!ig || !sugg.length ? 'disabled' : ''}>MOVE ALL SUGGESTED${sugg.length ? ' (' + sugg.length + ')' : ''}</button></div></div>`;
+    <div class="actions">${playing ? '<button class="btn2" id="ga-refresh">Refresh</button>' : ''}<button class="btn" id="ga-all" ${!ig || !sugg.length ? 'disabled' : ''}>Move all suggested${sugg.length ? ' (' + sugg.length + ')' : ''}</button></div></div>`;
   if (g.error) html += `<div class="gnote" style="margin-bottom:10px">${esc(g.error)}</div>`;
   if (g.game_warn) html += `<div class="gnote" style="margin-bottom:10px">${esc(g.game_warn)}</div>`;
   html += '<div class="kpi" style="margin-bottom:10px">' +
     k(main ? esc(short(main.name)) : 'graphics card', main ? gb(main.used_mb) : '–', main ? 'in use of ' + gb(main.mem_mb) + (g.game_mb >= 1 ? ' · the game ' + gb(g.game_mb) : ' · game not running') : '') +
     k('everything else on it', gb(g.others_mb || 0), 'programs, Windows and the driver: all but the game', g.others_mb >= 1500 ? 'warn' : '') +
-    k('suggested to move', sugg.length ? gb(g.movable_mb || 0) : '–', sugg.length ? sugg.length + ' program' + (sugg.length > 1 ? 's' : '') + ' that don\'t need the NVIDIA card' : 'nothing left to move', sugg.length ? '' : 'good') +
+    k('suggested to move', sugg.length ? gb(g.movable_mb || 0) : '–', sugg.length ? sugg.length + ' program' + (sugg.length > 1 ? 's' : '') + ' that don\'t need ' + cardWord : 'nothing left to move', sugg.length ? '' : 'good') +
     k('integrated graphics', ig ? esc(short(ig.name)) : 'not found', ig ? gb(ig.used_mb) + ' in use · uses system RAM' : 'switched off or none (see below)', ig ? '' : 'warn') + '</div>';
   if (!ig) {
     const known = (g.drivers || []).filter(d => /radeon\(tm\) graphics|radeon graphics|uhd graphics|iris|intel\(r\) graphics|vega/i.test(d));
@@ -863,7 +879,7 @@ async function renderGpuApps(note) {
     '<div class="dim">No program holds graphics memory right now.</div>';
   html += `<div class="dimmer small" style="margin-top:8px">Every program that draws with the graphics card keeps its images in that card's memory, and it all comes out of the same memory the game uses.
     A program moved to the integrated graphics keeps its images in system RAM instead and Windows copies its window to the screen; for browsers, chat and launchers you won't notice.
-    Keep games, OBS and video editors on the NVIDIA card. <b>The change applies the next time the program starts</b> (close it fully, also from the tray). Undo puts back exactly what Windows had before.</div>
+    Keep games, OBS and video editors on ${cardWord}. <b>The change applies the next time the program starts</b> (close it fully, also from the tray). Undo puts back exactly what Windows had before.</div>
     <details style="margin-top:8px"><summary class="small" style="cursor:pointer">How to do it by hand, and how to check it</summary><div class="small dim" style="margin-top:6px;line-height:1.55">
       <b>Windows Settings:</b> Settings → System → Display → Graphics. Pick the program from the list (or <i>Add desktop app</i> and browse to its .exe; Store apps: <i>Microsoft Store app</i>), open it (Options, or the dropdown next to it) and choose <b>Power saving</b>. Then close the program fully and start it again. This is the same setting the buttons above change.<br>
       <b>Check:</b> Task Manager → Details → right-click a column title → Select columns → <i>Dedicated GPU memory</i> and <i>GPU engine</i>. The Performance tab shows which GPU number is which card.<br>
@@ -915,7 +931,7 @@ async function renderExperiments(note) {
       <div class="ex-btn">${btn}</div></div>`;
   };
   root.innerHTML = `<div class="rep-head"><div class="title">Experiments</div>
-    <div class="cf-builds">${st.config.builds.map((b, i) => `<button class="btn2 small" data-b="${i}" style="${i === S.exBuild ? 'border-color:var(--yellow);color:var(--white)' : ''}">${esc(b.name)}</button>`).join('')}</div></div>
+    <div class="cf-builds">${st.config.builds.map((b, i) => `<button class="btn2 small" data-b="${i}" style="${i === S.exBuild ? 'border-color:var(--accent);color:var(--white)' : ''}">${esc(b.name)}</button>`).join('')}</div></div>
     <div class="card" style="margin-bottom:12px"><div class="dim">Windows settings people change to make games run better.
       Switch one on, play a session, and Compare it with a session without it: every session remembers which of these were on. Change one thing at a time, or you won't know which one did it.</div>
       ${note ? `<div style="margin-top:8px" class="${note.err ? 'lose' : 'win'}">${esc(note.text)}</div>` : ''}</div>
@@ -961,12 +977,12 @@ async function renderConflicts() {
   const k = (l, v, s, cls) => `<div class="k ${cls || ''}"><div class="l">${l}</div><div class="v">${v}</div>${s ? '<div class="s">' + s + '</div>' : ''}</div>`;
   const checking = cf.state === 'checking';
   let html = `<div class="rep-head"><div class="title">Conflicts</div>
-    <div class="cf-builds">${st.config.builds.map((b, i) => `<button class="btn2 small ${i === S.cfBuild ? 'on' : ''}" data-b="${i}" style="${i === S.cfBuild ? 'border-color:var(--yellow);color:var(--white)' : ''}">${esc(b.name)}</button>`).join('')}</div>
-    <div class="actions"><button class="btn" id="cf-run" ${checking ? 'disabled' : ''}>${checking ? 'CHECKING ...' : 'CHECK BUILD'}</button></div></div>`;
+    <div class="cf-builds">${st.config.builds.map((b, i) => `<button class="btn2 small ${i === S.cfBuild ? 'on' : ''}" data-b="${i}" style="${i === S.cfBuild ? 'border-color:var(--accent);color:var(--white)' : ''}">${esc(b.name)}</button>`).join('')}</div>
+    <div class="actions"><button class="btn" id="cf-run" ${checking ? 'disabled' : ''}>${checking ? 'Checking ...' : 'Check build'}</button></div></div>`;
   if (cf.error) html += `<div class="card"><span class="lose">${esc(cf.error)}</span></div>`;
   if (cf.state && cf.state.startsWith('error')) html += `<div class="card"><span class="lose">${esc(cf.state)}</span></div>`;
   if (!r) {
-    html += `<div class="card"><div class="dim">Not checked yet. CHECK BUILD reads the build's files without starting the game (a few seconds):</div>
+    html += `<div class="card"><div class="dim">Not checked yet. Check build reads the build's files without starting the game (a few seconds):</div>
       <ul class="dim" style="margin:8px 0 0 18px;padding:0">
       <li>archives that replace the same game file, which one wins, and whether the game loaded those files in your last session</li>
       <li>REDscript mods that replace the same game function (only one replacement runs)</li>
