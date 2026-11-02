@@ -25,6 +25,25 @@ func notAMod(name string) bool {
 	return false
 }
 
+// cardName: how advice names the game's graphics card. Sessions before 1.1 were NVIDIA only.
+func cardName(m *Meta) string {
+	if m == nil || m.GpuVendor == "" || m.GpuVendor == "nvidia" {
+		return "the NVIDIA card"
+	}
+	return "the game's graphics card"
+}
+
+// capPlace: where a frame cap is set on this card.
+func capPlace(m *Meta) string {
+	switch {
+	case m == nil || m.GpuVendor == "" || m.GpuVendor == "nvidia":
+		return "in the NVIDIA app or the game"
+	case m.GpuVendor == "amd":
+		return "in AMD Software or the game"
+	}
+	return "in the game"
+}
+
 func Advise(r *Result) []Advice {
 	out := []Advice{}
 	k := r.KPI
@@ -199,7 +218,7 @@ func Advise(r *Result) []Advice {
 			case "suggest":
 				what = "can run on the integrated graphics (" + a.Reason + ")"
 			case "keep", "game":
-				what = "keep on the NVIDIA card: " + a.Reason
+				what = "keep on " + cardName(r.Meta) + ": " + a.Reason
 			case "windows":
 				what = a.Reason + ", stays"
 			case "store":
@@ -217,10 +236,10 @@ func Advise(r *Result) []Advice {
 			items = append(items, strings.Join(shared, ", ")+": hooked into the game (overlay / desktop), so Windows counts the game's memory for them too; their real share is in the total")
 		}
 		detail := "Everything else on the card (programs, Windows, the driver) comes out of the same memory the game uses, so the game gets that much less before it has to spill into system RAM. " +
-			"Programs that don't need the NVIDIA card (browsers, Discord, launchers) can run on the processor's integrated graphics instead: " +
+			"Programs that don't need "+cardName(r.Meta)+" (browsers, Discord, launchers) can run on the processor's integrated graphics instead: " +
 			"VRAM tab, \"Programs on the graphics card\" (it changes the same Windows setting as Settings > Display > Graphics, with an exact undo), or close them before playing."
 		if ga.MovableTypMB < 150 {
-			detail = "Most of it is Windows itself or programs that belong on the NVIDIA card, so moving programs would free little here."
+			detail = "Most of it is Windows itself or programs that belong on " + cardName(r.Meta) + ", so moving programs would free little here."
 		}
 		add(level, fmt.Sprintf("Everything else on the game's card held %s of graphics memory while you played", mbOrGb(ga.OthersTypMB)), detail, items...)
 	}
@@ -411,7 +430,7 @@ func Advise(r *Result) []Advice {
 	// ---- pacing
 	if k.AvgFps > 0 && k.Low1Fps > 0 && k.Low1Fps/k.AvgFps < 0.7 {
 		add("try", fmt.Sprintf("Uneven frame pacing: 1%% low %.0f fps against %.0f fps average", k.Low1Fps, k.AvgFps),
-			"Frames come at uneven intervals even without big spikes. A frame cap a little under your usual fps (in the NVIDIA app or the game) usually evens it out.")
+			"Frames come at uneven intervals even without big spikes. A frame cap a little under your usual fps ("+capPlace(r.Meta)+") usually evens it out.")
 	}
 
 	// ---- overall

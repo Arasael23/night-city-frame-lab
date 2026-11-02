@@ -26,7 +26,7 @@ const (
 // GpuAppClass says whether a program belongs on the main graphics card, and why.
 //
 //	game     the game
-//	keep     needs the main card: recorder / streaming, NVIDIA's own tools, video editors, overlays
+//	keep     needs the main card: recorder / streaming, the graphics driver's own tools, video editors, overlays
 //	windows  part of Windows: draws the desktop on the card the screen is plugged into
 //	store    Microsoft Store app: Windows keeps its setting under the app's name, not its file
 //	suggest  doesn't need the main card (browser, chat, launcher, music): fine on integrated graphics
@@ -88,6 +88,10 @@ var gpuKeep = map[string]string{
 	"nvdisplay.container.exe":  "NVIDIA driver service",
 	"nvsphelper64.exe":         "NVIDIA recording",
 	"nvcplui.exe":              "NVIDIA Control Panel",
+	"radeonsoftware.exe":       "AMD Software (Adrenalin)",
+	"amdrsserv.exe":            "AMD recording / instant replay",
+	"amdow.exe":                "AMD overlay",
+	"atieclxx.exe":             "AMD driver service",
 	"resolve.exe":              "video editing",
 	"adobe premiere pro.exe":   "video editing",
 	"afterfx.exe":              "video editing",

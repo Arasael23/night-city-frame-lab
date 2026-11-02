@@ -23,6 +23,9 @@ type Meta struct {
 	Layers    LayerInfo `json:"layers"`
 	Notes     []string  `json:"notes,omitempty"`
 	GPU       string    `json:"gpu,omitempty"`
+	GpuVendor string    `json:"gpu_vendor,omitempty"` // "nvidia", "amd", "intel" (1.1+; empty = NVIDIA in older sessions)
+	GpuSource string    `json:"gpu_source,omitempty"` // where the card's readings came from
+	GpuReads  []string  `json:"gpu_reads,omitempty"`  // which readings the card's driver gave
 	Experiments []string `json:"experiments,omitempty"` // Windows settings from the Experiments tab that were on
 	Finished  bool      `json:"finished"`
 }

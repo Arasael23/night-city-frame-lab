@@ -74,6 +74,7 @@ type KPI struct {
 	CommitPeakMB   float64 `json:"commit_peak_mb,omitempty"`
 	CommitLimitMB  float64 `json:"commit_limit_mb,omitempty"`
 	OthersVramMB   float64 `json:"others_vram_mb,omitempty"` // graphics memory other programs held on the game's card while playing (median, 1.4+)
+	SlowdownKnown  bool    `json:"slowdown_known"`           // the card's driver says why it lowers its clocks (NVIDIA)
 }
 
 // a screen reset (the game re-applying full screen / rebuilding its screen buffers) and what followed
@@ -714,6 +715,25 @@ func Run(dir string, env Env) (*Result, error) {
 	}
 	res.KPI.ThrottleText = samples.ThrottleText(throttleAll)
 	res.KPI.ThrottleBad = samples.Serious(throttleAll)
+	res.KPI.SlowdownKnown = meta.GpuVendor == "" || meta.GpuVendor == "nvidia" // sessions before 1.1: NVIDIA only
+	// readings this card's driver doesn't give stay out of the charts instead of showing as 0
+	hasData := func(v []float64) bool {
+		for _, x := range v {
+			if x > 0 {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasData(res.Timeline.ClockMHz) {
+		res.Timeline.ClockMHz = nil
+	}
+	if !hasData(res.Timeline.TempC) {
+		res.Timeline.TempC = nil
+	}
+	if !hasData(res.Timeline.PowerW) {
+		res.Timeline.PowerW = nil
+	}
 	sampAround := func(q0, q1 int64, sp *Spike) (disk, cpu, core float64, thr uint64, other string) {
 		pad := int64(0.5 * d.freq)
 		otherPct := 0.0
