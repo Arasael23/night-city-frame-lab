@@ -1,24 +1,22 @@
-MIT License
+Night City Frame Lab - licence (version 1.1.0 and later)
 
-Copyright (c) 2026 Night City Frame Lab authors
+Copyright (c) 2026 Night City Frame Lab authors. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+The source code in this repository is published so anyone can read it and check what the
+program does. Nothing else is permitted without written permission from the authors. In
+particular, you may not:
+  - copy, modify or reuse this code, or any part of it, in another project;
+  - publish, upload, mirror or distribute the program, its source or a modified version
+    anywhere (including other mod sites);
+  - sell it or use it for anything commercial.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Version 1.0.0 (git tag v1.0.0) was published under the MIT licence and stays under it. Everything
+added or changed after 1.0.0 is covered only by this licence.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Third-party code and fonts keep their own licences: see THIRD_PARTY.md.
 
-This licence covers the Night City Frame Lab and HitchRecorder source in this
-repository. Third-party code keeps its own licence: see THIRD_PARTY.md.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

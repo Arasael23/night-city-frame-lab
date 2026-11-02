@@ -4,7 +4,7 @@ A stutter and performance recorder for heavily modded Cyberpunk 2077. It records
 
 Download and user guide: [Nexus Mods](https://www.nexusmods.com/cyberpunk2077/mods/36756)
 
-Made and tested on game version 2.31 with an NVIDIA card. Not tested on 2.5 or on AMD/Intel cards yet.
+Made and tested on game version 2.31 with an NVIDIA card (players report 2.5 works too). AMD and Intel cards are supported from 1.1 as a beta.
 
 ## What is in this repository
 
@@ -24,4 +24,4 @@ See [BUILD.md](BUILD.md). The build is reproducible: with the toolchain listed t
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE). Third-party parts keep their own licences, see [THIRD_PARTY.md](THIRD_PARTY.md).
+From 1.1.0: all rights reserved, the source is here to read, not to reuse or re-upload (see [LICENSE](LICENSE)). Version 1.0.0 (tag `v1.0.0`) stays under MIT. Third-party parts keep their own licences, see [THIRD_PARTY.md](THIRD_PARTY.md).

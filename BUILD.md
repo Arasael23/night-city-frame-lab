@@ -1,4 +1,4 @@
-# Building Night City Frame Lab 1.0.0
+# Building Night City Frame Lab 1.1.0
 
 The release is cross-compiled on Linux. On Windows, use WSL with Ubuntu 24.04 and follow the same steps.
 
@@ -56,8 +56,8 @@ SHA-256 `b2a706bc6ad475749e3b7e3409263aa1e6906d45bdcf993f6dbc0f660188f1af`). Put
 ./build.sh package
 ```
 
-`out/Night City Frame Lab 1.0.0.zip` then has SHA-256
-`634b17a068c3ca2c58b7c79d542da3f8a1ea06157a53a1bea0802b1236028587` (file times are fixed so the zip is reproducible).
+`out/Night City Frame Lab 1.1.0.zip` then has SHA-256
+`5a1824c47845e4cd7044544dfadaf127190918e5237af1cf846eb7cb2839c0be` (file times are fixed so the zip is reproducible).
 
 ## Third-party code
 
