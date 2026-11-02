@@ -48,7 +48,38 @@ func ReadHitchState() *HitchState {
 	return ParseHitchState(b)
 }
 
-func GPUName() string { return "Test GPU (dev)" }
+// fake cards for the Linux dev server: FRAMELAB_FAKE_GPU=amd or intel (default NVIDIA)
+func GPU() GpuInfo {
+	switch os.Getenv("FRAMELAB_FAKE_GPU") {
+	case "amd":
+		return GpuInfo{Name: "AMD Radeon RX 7800 XT", Vendor: "amd", Source: "AMD driver (ADLX) + Windows",
+			Reads: []string{ReadClock, ReadTemp, ReadPower, ReadUsage, ReadVram}}
+	case "intel":
+		return GpuInfo{Name: "Intel(R) Arc(TM) B580 Graphics", Vendor: "intel", Source: "Windows",
+			Reads: []string{ReadTemp, ReadUsage, ReadVram}}
+	}
+	return GpuInfo{Name: "Test GPU (dev)", Vendor: "nvidia", Source: "NVIDIA driver (NVML)",
+		Reads: []string{ReadClock, ReadTemp, ReadPower, ReadUsage, ReadVram, ReadSlowdown}}
+}
+
+func GPUName() string { return GPU().Name }
+
+// fakeRead keeps only what the fake card gives.
+func fakeRead(s *samples.Sample) {
+	g := GPU()
+	if !g.Has(ReadClock) {
+		s.GpuClockMHz, s.MemClockMHz = 0, 0
+	}
+	if !g.Has(ReadTemp) {
+		s.GpuTempC = 0
+	}
+	if !g.Has(ReadPower) {
+		s.GpuPowerW = 0
+	}
+	if !g.Has(ReadSlowdown) {
+		s.Throttle = 0
+	}
+}
 
 type fakeSampler struct {
 	stop chan struct{}
@@ -93,6 +124,7 @@ func StartSampler(gamePid uint32, out string) (Sampler, error) {
 			smp := samples.Sample{Qpc: QPC(), GpuClockMHz: 2790 - 30*math.Sin(x/40), GpuTempC: 66, GpuPowerW: 310, GpuUtilPct: 97,
 				VramUsedMB: 14000, VramTotalMB: 16303, GameCpuPct: 40, MaxCorePct: 80, GameReadMBs: 20, OtherGpuPct: 9, OtherGpuName: "obs64.exe",
 				CpuClockMHz: 5200 - 120*math.Sin(x/25), CpuTotalPct: 35, CoresBusy: 2, DpcPct: 0.8, IntPct: 0.4, PagesSec: 12, GameSharedMB: 420, AvailRamMB: 9000, CommitMB: 30000, CommitLimitMB: 51800}
+			fakeRead(&smp)
 			w.Write(&smp)
 			s.mu.Lock()
 			s.last = map[string]float64{"gpu_clock": smp.GpuClockMHz, "gpu_temp": smp.GpuTempC, "gpu_power": smp.GpuPowerW,
@@ -105,7 +137,19 @@ func StartSampler(gamePid uint32, out string) (Sampler, error) {
 }
 
 func LiveGPU() map[string]float64 {
-	return map[string]float64{"gpu_clock": 2790, "gpu_temp": 52, "gpu_power": 60, "gpu_util": 8, "vram_used": 2100, "vram_total": 16303}
+	s := samples.Sample{GpuClockMHz: 2790, GpuTempC: 52, GpuPowerW: 60}
+	fakeRead(&s)
+	out := map[string]float64{"gpu_util": 8, "vram_used": 2100, "vram_total": 16303}
+	if s.GpuClockMHz > 0 {
+		out["gpu_clock"] = s.GpuClockMHz
+	}
+	if s.GpuTempC > 0 {
+		out["gpu_temp"] = s.GpuTempC
+	}
+	if s.GpuPowerW > 0 {
+		out["gpu_power"] = s.GpuPowerW
+	}
+	return out
 }
 
 func ExtractNames(wolvenKitCommon, oodleDll, outGz string) error {

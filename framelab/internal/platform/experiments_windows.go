@@ -459,6 +459,8 @@ func shaderCacheDirs() []string {
 		filepath.Join(up, "AppData", "LocalLow", "NVIDIA", "PerDriverVersion", "DXCache"),
 		filepath.Join(la, "D3DSCache"),
 		filepath.Join(la, "AMD", "DxCache"),
+		filepath.Join(la, "AMD", "DxcCache"), // DirectX 12 (newer AMD drivers)
+		filepath.Join(up, "AppData", "LocalLow", "Intel", "ShaderCache"),
 	}
 }
 

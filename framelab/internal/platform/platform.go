@@ -1,5 +1,5 @@
 // Package platform holds everything that talks to Windows: processes, the HitchRecorder live state,
-// QPC, the NVIDIA driver, Windows performance counters and PresentMon.
+// QPC, the graphics drivers (NVIDIA NVML, AMD ADLX), Windows performance counters and PresentMon.
 package platform
 
 import (
@@ -76,6 +76,11 @@ func ParseHitchState(b []byte) *HitchState {
 	s.BinPath = string(utf16.Decode(u))
 	return s
 }
+
+// dataDir: Frame Lab's data folder (crash guard files), set at start.
+var dataDir string
+
+func SetDataDir(d string) { dataDir = d }
 
 // GameProc is a running Cyberpunk2077.exe.
 type GameProc struct {

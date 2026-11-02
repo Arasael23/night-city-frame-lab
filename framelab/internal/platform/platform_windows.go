@@ -199,9 +199,6 @@ func loadNVML() *nvml {
 	return &nv
 }
 
-// GPUName returns the NVIDIA GPU name, or "".
-func GPUName() string { return loadNVML().name }
-
 func (n *nvml) read(s *samples.Sample) {
 	if !n.ok {
 		return
@@ -385,7 +382,7 @@ func StartSampler(gamePid uint32, out string) (Sampler, error) {
 		defer close(s.done)
 		defer w.Close()
 		runtime.LockOSThread()
-		n := loadNVML()
+		g := mainSource()
 		q := newPdh()
 		ncpu := float64(runtime.NumCPU())
 		gameCounters := false
@@ -403,6 +400,9 @@ func StartSampler(gamePid uint32, out string) (Sampler, error) {
 			q.add("gpushared", `\GPU Process Memory(*)\Shared Usage`)
 			q.add("commit", `\Memory\Committed Bytes`)
 			q.add("commitlim", `\Memory\Commit Limit`)
+			if g.needsCounters() {
+				q.add("gpuad", `\GPU Adapter Memory(*)\Dedicated Usage`)
+			}
 			q.collect()
 		}
 		names := processes()
@@ -420,7 +420,7 @@ func StartSampler(gamePid uint32, out string) (Sampler, error) {
 			case <-tick.C:
 			}
 			smp := samples.Sample{Qpc: QPC()}
-			n.read(&smp)
+			var eng map[string]float64
 			if q != nil {
 				if !gameCounters {
 					a := q.add("gcpu", `\Process(Cyberpunk2077)\% Processor Time`)
@@ -479,9 +479,10 @@ func StartSampler(gamePid uint32, out string) (Sampler, error) {
 					}
 				}
 				perPid := map[uint32]float64{}
-				for inst, v := range q.array("gpueng") {
+				eng = q.array("gpueng")
+				for inst, v := range eng {
 					pid := pidOf(inst)
-					if pid == 0 {
+					if pid == 0 || (g.main.Luid != "" && luidOf(inst) != g.main.Luid) { // only the game's card
 						continue
 					}
 					if pid == gamePid {
@@ -515,6 +516,11 @@ func StartSampler(gamePid uint32, out string) (Sampler, error) {
 					apps.write(smp.Qpc, gpumem, q.array("gpushared"), gamePid, names)
 				}
 			}
+			if q != nil && g.needsCounters() {
+				g.read(&smp, eng, q.array("gpuad"))
+			} else {
+				g.read(&smp, nil, nil)
+			}
 			w.Write(&smp)
 			s.mu.Lock()
 			s.last = map[string]float64{"gpu_clock": smp.GpuClockMHz, "gpu_temp": smp.GpuTempC, "gpu_power": smp.GpuPowerW,
@@ -528,18 +534,6 @@ func StartSampler(gamePid uint32, out string) (Sampler, error) {
 		}
 	}()
 	return s, nil
-}
-
-// LiveGPU reads one NVML sample (for the status page while not capturing).
-func LiveGPU() map[string]float64 {
-	var s samples.Sample
-	n := loadNVML()
-	if !n.ok {
-		return nil
-	}
-	n.read(&s)
-	return map[string]float64{"gpu_clock": s.GpuClockMHz, "gpu_temp": s.GpuTempC, "gpu_power": s.GpuPowerW, "gpu_util": s.GpuUtilPct,
-		"vram_used": s.VramUsedMB, "vram_total": s.VramTotalMB}
 }
 
 // ---------------------------------------------------------------- file names from WolvenKit

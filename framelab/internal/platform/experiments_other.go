@@ -22,6 +22,10 @@ func ExpRead(id, game string) (on bool, detail string, ok bool) {
 		return false, "", true
 	case "cfg":
 		return false, "Control Flow Guard: notset (system default)", true
+	case "pstate":
+		if GPU().Vendor != "nvidia" {
+			return false, "no NVIDIA graphics card found", false
+		}
 	}
 	if fakeExp[id] {
 		return true, "on (dev)", true
