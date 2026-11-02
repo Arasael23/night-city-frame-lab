@@ -69,7 +69,7 @@ var expDefs = []ExpDef{
 		Expect: "Same as above, once.",
 		When:   "at once"},
 	{ID: "shadercache", Name: "Clear the shader caches", Action: true, Warn: true,
-		What:   "Deletes the NVIDIA / DirectX shader cache files (DXCache, PerDriverVersion\\DXCache, D3DSCache). The cache size setting is left alone.",
+		What:   "Deletes the graphics driver's and DirectX's shader cache files (NVIDIA DXCache, AMD DxCache / DxcCache, Intel ShaderCache, Windows D3DSCache). The cache size setting is left alone.",
 		Expect: "Only useful after a driver update or a broken cache. If your sessions show no stutter from shader builds, leave it.",
 		Risk:   "The next session stutters while every shader is built again.",
 		When:   "at once (close the game first)"},
@@ -139,7 +139,16 @@ func experimentStates(data, game string) []ExpState {
 		}(i, d)
 	}
 	wg.Wait()
-	return out
+	// NVIDIA-only settings stay out of the list on PCs without an NVIDIA card (unless Frame Lab
+	// switched one on before, so it can still be undone)
+	kept := out[:0]
+	for _, st := range out {
+		if st.ID == "pstate" && !st.OK && !st.Ours {
+			continue
+		}
+		kept = append(kept, st)
+	}
+	return kept
 }
 
 func setExperiment(data, game, id string, on bool) error {

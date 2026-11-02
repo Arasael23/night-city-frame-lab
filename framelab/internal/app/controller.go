@@ -220,7 +220,9 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 	c.mu.Unlock()
 
 	meta := &analysis.Meta{ID: filepath.Base(dir), Title: title, Build: b.Name, Game: b.Path, Created: time.Now(),
-		QpcFreq: platform.QPCFreq(), SpikeMs: cfg.SpikeMs, GPU: platform.GPUName()}
+		QpcFreq: platform.QPCFreq(), SpikeMs: cfg.SpikeMs}
+	gi := platform.GPU()
+	meta.GPU, meta.GpuVendor, meta.GpuSource, meta.GpuReads = gi.Name, gi.Vendor, gi.Source, gi.Reads
 	analysis.WriteMeta(dir, meta)
 
 	go func() {

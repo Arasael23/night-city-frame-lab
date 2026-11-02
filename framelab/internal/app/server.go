@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -36,6 +37,7 @@ func NewServer(p Paths, ui fs.FS) *Server {
 	b := make([]byte, 16)
 	rand.Read(b)
 	s := &Server{Paths: p, UI: ui, Token: hex.EncodeToString(b)}
+	platform.SetDataDir(p.Data)
 	s.Settings = LoadSettings(p)
 	s.Ctl = NewController(p, s.Settings)
 	// 1.2.1: build the file-name list by itself the first time (reports show paths instead of numbers)
@@ -316,6 +318,7 @@ type stateOut struct {
 	Version    string          `json:"version"`
 	Admin      bool            `json:"admin"`
 	GPU        string          `json:"gpu"`
+	GpuInfo    platform.GpuInfo `json:"gpu_info"`
 	Config     Config          `json:"config"`
 	Builds     []BuildState    `json:"builds"`
 	Components map[string]any  `json:"components"`
@@ -347,7 +350,7 @@ func (s *Server) state() stateOut {
 	if cfg.Builds == nil {
 		cfg.Builds = []BuildCfg{}
 	}
-	st := stateOut{Version: Version, Admin: platform.IsAdmin(), GPU: platform.GPUName(), Config: cfg, Builds: builds,
+	st := stateOut{Version: Version, Admin: platform.IsAdmin(), GPU: platform.GPUName(), GpuInfo: platform.GPU(), Config: cfg, Builds: builds,
 		Capture: s.Ctl.Status(), Time: time.Now().Format("15:04:05")}
 	st.Components = map[string]any{
 		"presentmon": map[string]any{"found": comp.PresentMon != "", "path": comp.PresentMon, "name": filepath.Base(comp.PresentMon)},
@@ -462,6 +465,13 @@ func (s *Server) exportReport(dir string) (string, error) {
 	read := func(n string) string { b, _ := fs.ReadFile(s.UI, n); return string(b) }
 	html := read("index.html")
 	css := read("uPlot.min.css") + "\n" + read("style.css")
+	// The window loads its fonts from fonts/; a saved report has no folder next to it, so put them inside.
+	for _, w := range []string{"Light", "Regular", "Medium", "SemiBold"} {
+		ref := `url("fonts/Inter-` + w + `.woff2")`
+		if b, err := fs.ReadFile(s.UI, "fonts/Inter-"+w+".woff2"); err == nil {
+			css = strings.Replace(css, ref, `url("data:font/woff2;base64,`+base64.StdEncoding.EncodeToString(b)+`")`, 1)
+		}
+	}
 	js := read("uPlot.iife.min.js") + "\n" + read("app.js")
 	safeData := strings.ReplaceAll(string(ana), "</", "<\\/")
 	html = strings.Replace(html, `<link rel="stylesheet" href="uPlot.min.css">`, "", 1)
