@@ -83,9 +83,9 @@ func checkTweaks(r *Report, o Options) {
 		owner := tweakOwner(rel)
 		sc := bufio.NewScanner(f)
 		sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
-		top := ""        // current top-level record
-		topInd := -1     // indent of the record's first child
-		skipBelow := -1  // inside a list or block: ignore lines indented deeper than this
+		top := ""       // current top-level record
+		topInd := -1    // indent of the record's first child
+		skipBelow := -1 // inside a list or block: ignore lines indented deeper than this
 		for sc.Scan() {
 			line := strings.TrimRight(sc.Text(), " \r\t")
 			trim := strings.TrimSpace(line)
