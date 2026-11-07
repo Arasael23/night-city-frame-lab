@@ -389,7 +389,23 @@ func Advise(r *Result) []Advice {
 		add("fix", fmt.Sprintf("Drivers held the CPU during %d long freeze%s (worst %.0f ms): up to %.0f%% of the CPU in driver interrupts", unN, plural(unN), unWorst, dpc),
 			"Driver interrupt time (DPC) that high stalls everything. Usual suspects: network (Wi-Fi especially), audio, USB devices, RGB/monitoring tools. LatencyMon names the driver; updating or disabling it for a test session tells you.")
 	} else if unN > 0 && shared >= 300 {
-		add("fix", fmt.Sprintf("VRAM spilled into system RAM during %d long freeze%s (worst %.0f ms): %.0f MB of the game's GPU memory in RAM", unN, plural(unN), unWorst, shared),
+		// 2.0.1: the game often keeps that memory in RAM the whole session, not just at the freeze
+		var sh []float64
+		for _, v := range r.Timeline.SharedMB {
+			if v > 0 {
+				sh = append(sh, v)
+			}
+		}
+		typ := 0.0
+		if len(sh) > 0 {
+			sort.Float64s(sh)
+			typ = pctl(sh, 50)
+		}
+		title := fmt.Sprintf("VRAM spilled into system RAM during %d long freeze%s (worst %.0f ms): %.0f MB of the game's GPU memory in RAM", unN, plural(unN), unWorst, shared)
+		if typ >= 0.8*shared {
+			title = fmt.Sprintf("VRAM was full: %.0f MB of the game's GPU memory stayed in system RAM while you played, with %d long freeze%s (worst %.0f ms)", typ, unN, plural(unN), unWorst)
+		}
+		add("fix", title,
 			"When VRAM runs out Windows keeps part of the game's GPU memory in normal RAM and moves it back and forth, which freezes frames. Freeing VRAM (see the VRAM item) is the fix.")
 	} else if unN > 0 {
 		next := "Frame Lab's Windows event recorder (Settings) names which. "

@@ -101,6 +101,16 @@ var gpuKeep = map[string]string{
 	"msiafterburner.exe":       "MSI Afterburner",
 }
 
+// gpuHooks: programs that hook into the game's frames (overlays, recorders), so Windows also counts
+// the game's own graphics memory they hold a handle to.
+var gpuHooks = map[string]bool{
+	"nvidia overlay.exe": true, "nvidia share.exe": true, "nvsphelper64.exe": true,
+	"amdow.exe": true, "amdrsserv.exe": true, "rtss.exe": true,
+	"gameoverlayui.exe": true, "gameoverlayui64.exe": true, "discordhookhelper64.exe": true,
+	"obs64.exe": true, "obs32.exe": true, "medal.exe": true,
+	"gamebar.exe": true, "gamebarftserver.exe": true, "dwm.exe": true,
+}
+
 var gpuWindows = map[string]string{
 	"dwm.exe":                     "Windows: draws the desktop and every window, on the card the screen is plugged into",
 	"csrss.exe":                   "part of Windows",
@@ -318,10 +328,31 @@ func loadGpuApps(dir string, inWin, playing func(int64) bool, othTyp, othMax flo
 		if othTyp > 0 && u.TypMB > othTyp+gpuSharedMargin {
 			u.Shared = true
 		}
-		if (cl == "suggest" || cl == "other") && !u.Shared {
+		s.Apps = append(s.Apps, u)
+	}
+	// 2.0.1: overlays hold handles to the game's own memory too, but often for less than the whole
+	// card minus the game, so the check above misses them (NVIDIA Overlay showed 1.5 GB, most of it
+	// the game's). When the programs together show more than everything but the game on the card,
+	// the ones that hook into the game are the ones counting it twice.
+	if othTyp > 0 {
+		sum := 0.0
+		for _, u := range s.Apps {
+			if !u.Shared {
+				sum += u.TypMB
+			}
+		}
+		if sum > othTyp+gpuSharedMargin {
+			for i := range s.Apps {
+				if gpuHooks[strings.ToLower(s.Apps[i].Name)] {
+					s.Apps[i].Shared = true
+				}
+			}
+		}
+	}
+	for _, u := range s.Apps {
+		if (u.Class == "suggest" || u.Class == "other") && !u.Shared {
 			s.MovableTypMB += u.TypMB
 		}
-		s.Apps = append(s.Apps, u)
 	}
 	sort.Slice(s.Apps, func(i, j int) bool {
 		if s.Apps[i].TypMB != s.Apps[j].TypMB {
