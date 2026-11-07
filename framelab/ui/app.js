@@ -70,6 +70,7 @@ function showTab(t) {
   if (t === 'compare') renderCompare();
   if (t === 'mods') renderMods();
   if (t === 'conflicts') renderConflicts();
+  if (t === 'checks') renderChecks();
   if (t === 'experiments') renderExperiments();
   if (t === 'vram') renderVram();
   if (t === 'settings') renderSettings(true);
@@ -380,6 +381,9 @@ function renderReport(el, r, reportOnly) {
       ${kpiBox('median frame', fmt.ms(k.median_ms), fmt.fps(k.avg_fps) + ' avg')}
       ${kpiBox('1% low', fmt.fps(k.low1_fps), '0.1% low ' + fmt.fps(k.low01_fps), lowCls)}
       ${kpiBox('spikes ≥ ' + k.spike_ms + ' ms', k.spikes, k.spikes && k.duration_s ? (k.spikes / (k.duration_s / 60)).toFixed(1) + ' per minute' : '', k.spikes > 0 ? 'warn' : 'good')}
+      ${kpiBox('stutter', k.stutter_pct != null ? k.stutter_pct.toFixed(2) + '%' : '–', 'frames over 2.5× the average' + (k.frame_sd_ms != null ? ' · spread ' + fmt.ms(k.frame_sd_ms) : ''), k.stutter_pct >= 0.5 ? 'warn' : '')}
+      ${k.input_lag_ms ? kpiBox('input lag', fmt.ms(k.input_lag_ms), 'input to screen, median') : ''}
+      ${k.cpu_temp_max ? kpiBox('CPU temp max', k.cpu_temp_max.toFixed(0) + ' °C', '', k.cpu_temp_max >= 90 ? 'warn' : '') : ''}
       ${kpiBox('GPU bound', k.gpu_bound_pct >= 0 ? k.gpu_bound_pct.toFixed(0) + '%' : '–', 'frames where the GPU was the limit')}
       ${kpiBox('VRAM peak (game)', k.vram_peak_mb ? fmt.mb(k.vram_play_peak_mb || k.vram_peak_mb) : '–', (k.vram_budget_mb ? 'budget ' + fmt.mb(k.vram_budget_mb) : '') + (k.resets && k.vram_play_peak_mb && k.vram_play_peak_mb < k.vram_peak_mb - 300 ? ' · ' + fmt.mb(k.vram_peak_mb) + ' during screen resets' : '') + (k.others_vram_mb ? ' · rest of the card ' + fmt.mb(k.others_vram_mb) : ''), vramCls)}
       ${kpiBox('script time', ((k.redscript_ms_per_s || 0) + (k.cet_ms_per_s || 0)).toFixed(1) + ' ms/s', 'REDscript ' + fmt.p(k.redscript_ms_per_s) + ' · CET ' + fmt.p(k.cet_ms_per_s))}
@@ -502,7 +506,7 @@ function selectSpike(el, r, id) {
   }
 }
 
-const ADV_TAG = { fix: ['fix', 'caused stutters'], try: ['try', 'worth a test'], info: ['info', 'good to know'], good: ['good', 'fine'] };
+const ADV_TAG = { crash: ['crash', 'crash'], hw: ['hw', 'needs a look'], fix: ['fix', 'caused stutters'], try: ['try', 'worth a test'], info: ['info', 'good to know'], good: ['good', 'fine'] };
 function adviceHtml(r, reportOnly) {
   const list = r.advice;
   if (!list) return reportOnly ? '' : '<div class="card adv"><h2>What to try</h2><div class="dim">This session was analysed by an older Frame Lab. Press <b>Re-analyse</b> to get suggestions.</div></div>';
@@ -576,8 +580,8 @@ function drawCharts(el, r) {
     band(focus, 'rgba(47,196,185,0.08)');
     (r.markers || []).forEach(m => {
       const x = u.valToPos(m.t, 'x', true);
-      c.strokeStyle = m.kind === 'mark' ? css('--accent') : '#4a4c50';
-      c.setLineDash([3, 4]); c.lineWidth = 1;
+      c.strokeStyle = m.kind === 'mark' ? css('--accent') : (m.kind === 'felt' ? '#e8a24a' : '#4a4c50');
+      if (m.kind === 'felt') { c.setLineDash([]); c.lineWidth = 2 * devicePixelRatio; } else { c.setLineDash([3, 4]); c.lineWidth = 1; }
       c.beginPath(); c.moveTo(x, u.bbox.top); c.lineTo(x, u.bbox.top + u.bbox.height); c.stroke();
     });
     // screen resets: solid where the game took memory, dashed where it gave it back
@@ -726,12 +730,48 @@ async function renderCompare() {
   let html = (added.length || removed.length) ? `<div class="card" style="margin-bottom:12px"><h2>Experiments changed</h2>
     ${added.map(x => '<div><span class="tag g">switched on</span> ' + esc(x) + '</div>').join('')}${removed.map(x => '<div><span class="tag">switched off</span> ' + esc(x) + '</div>').join('')}
     ${added.length + removed.length > 1 ? '<div class="dimmer small" style="margin-top:6px">More than one setting changed between these sessions, so the difference can\'t be put on one of them.</div>' : ''}</div>` : '';
+  // 2.0: what changed between the two sessions (snapshot taken when each session started)
+  const sa = A.snapshot, sb = B.snapshot;
+  if (A.meta.build && B.meta.build && A.meta.build !== B.meta.build) html += `<div class="card" style="margin-bottom:12px"><h2>Different game builds</h2><div class="dim">Before is from ${esc(A.meta.build)}, after from ${esc(B.meta.build)}: different mods and settings, so this compares the two builds rather than one change.</div></div>`;
+  if (!sa || !sb) html += `<div class="card" style="margin-bottom:12px"><h2>What changed</h2><div class="dim">Needs both sessions recorded with Frame Lab 2.0 (it saves the versions, mods and game settings when a session starts).</div></div>`;
+  else {
+    const ch = [];
+    [['Game', 'game_version'], ['Graphics driver', 'driver'], ['Windows', 'windows']].forEach(([l, k]) => {
+      if (sa[k] && sb[k] && sa[k] !== sb[k]) ch.push(`<div><span class="tag">${l}</span> ${esc(sa[k])} → ${esc(sb[k])}</div>`);
+    });
+    const ma = {}, mb = {};
+    (sa.mods || []).forEach(m => { ma[m.path] = m; });
+    (sb.mods || []).forEach(m => { mb[m.path] = m; });
+    const addedM = Object.keys(mb).filter(p => !ma[p]), goneM = Object.keys(ma).filter(p => !mb[p]);
+    const updM = Object.keys(mb).filter(p => ma[p] && (ma[p].size !== mb[p].size || ma[p].mtime !== mb[p].mtime));
+    const lst = (arr, tag, cls) => arr.slice(0, 30).map(p => `<div><span class="tag ${cls}">${tag}</span> ${esc(p)}</div>`).join('') + (arr.length > 30 ? `<div class="dimmer small">and ${arr.length - 30} more</div>` : '');
+    const setA = sa.settings || {}, setB = sb.settings || {};
+    const setCh = Object.keys(setB).filter(k => k in setA && setA[k] !== setB[k]);
+    const body = ch.join('') + lst(addedM, 'mod added', 'g') + lst(goneM, 'mod removed', '') + lst(updM, 'mod updated', 'y') +
+      setCh.slice(0, 30).map(k => `<div><span class="tag y">setting</span> ${esc(k.replace(/^\//, ''))}: ${esc(setA[k])} → ${esc(setB[k])}</div>`).join('');
+    html += `<div class="card" style="margin-bottom:12px"><h2>What changed</h2>${body || '<div class="dim">Same game, driver, Windows, mods and game settings in both sessions.</div>'}</div>`;
+  }
+  // 2.0: is the difference bigger than the noise? (30 s stretches of play in each session)
+  const bstat = (bl, key) => { const v = (bl || []).map(b => b[key]).filter(x => isFinite(x) && x > 0); const n = v.length; if (n < 3) return null; const m = v.reduce((a, b) => a + b, 0) / n; const sd = Math.sqrt(v.reduce((a, b) => a + (b - m) * (b - m), 0) / (n - 1)); return { n, m, se: sd / Math.sqrt(n) }; };
+  const verdictLine = (label, a, b) => {
+    if (!a || !b) return '';
+    const d = b.m - a.m, se = Math.sqrt(a.se * a.se + b.se * b.se), t = se > 0 ? d / se : 0, pct = 100 * d / a.m;
+    if (Math.abs(t) < 2 || Math.abs(pct) < 2) return `<div>${label}: ${a.m.toFixed(1)} → ${b.m.toFixed(1)} ms, <b>within the normal run-to-run noise</b></div>`;
+    return `<div>${label}: ${a.m.toFixed(1)} → ${b.m.toFixed(1)} ms, <b class="delta ${d < 0 ? 'better' : 'worse'}">${d < 0 ? 'better' : 'worse'} by ${Math.abs(pct).toFixed(1)}%</b>, more than the noise between stretches</div>`;
+  };
+  const vm = verdictLine('Typical frame (median)', bstat(A.blocks, 'median_ms'), bstat(B.blocks, 'median_ms'));
+  const vp = verdictLine('Slow frames (1% low frame time)', bstat(A.blocks, 'p99_ms'), bstat(B.blocks, 'p99_ms'));
+  if (vm || vp) html += `<div class="card" style="margin-bottom:12px"><h2>Verdict</h2>${vm}${vp}<div class="dimmer small" style="margin-top:6px">Each session is cut into 30 s stretches of play; a change only counts when it is bigger than how much those stretches differ from each other. Same route and settings still matter.</div></div>`;
+  else html += `<div class="card" style="margin-bottom:12px"><h2>Verdict</h2><div class="dim">Needs at least 90 s of play in both sessions (recorded with Frame Lab 2.0).</div></div>`;
   html += `<div class="grid2" style="margin-top:0"><div class="card"><h2>Overall</h2><table><tr><th></th><th class="n">before</th><th class="n">after</th><th class="n">change</th></tr>
     ${row('median frame (ms)', ka.median_ms, kb.median_ms, v => fmt.p(v, 2), true)}
     ${row('average fps', ka.avg_fps, kb.avg_fps, v => fmt.p(v, 0), false)}
     ${row('1% low fps', ka.low1_fps, kb.low1_fps, v => fmt.p(v, 0), false)}
     ${row('0.1% low fps', ka.low01_fps, kb.low01_fps, v => fmt.p(v, 0), false)}
     ${row('spikes per minute', perMin(ka), perMin(kb), v => fmt.p(v, 2), true)}
+    ${row('stutter %', ka.stutter_pct, kb.stutter_pct, v => fmt.p(v, 2), true)}
+    ${row('frame time spread (ms)', ka.frame_sd_ms, kb.frame_sd_ms, v => fmt.p(v, 2), true)}
+    ${row('input lag (ms)', ka.input_lag_ms || null, kb.input_lag_ms || null, v => fmt.p(v, 1), true)}
     ${row('GPU bound %', ka.gpu_bound_pct >= 0 ? ka.gpu_bound_pct : null, kb.gpu_bound_pct >= 0 ? kb.gpu_bound_pct : null, v => fmt.p(v, 0), true)}
     ${row('VRAM peak (MB)', ka.vram_peak_mb || null, kb.vram_peak_mb || null, v => fmt.p(v, 0), true)}
     ${row('script time (ms/s)', (ka.redscript_ms_per_s || 0) + (ka.cet_ms_per_s || 0), (kb.redscript_ms_per_s || 0) + (kb.cet_ms_per_s || 0), v => fmt.p(v, 1), true)}
@@ -777,46 +817,172 @@ async function renderMods() {
 }
 
 /* ------------------------------------------------------------------ VRAM */
+// a mod's name without the library's "<Nexus ID> <version> <date>" tail
+const modName = (m) => m.nexus ? m.label.replace(new RegExp('\\s+' + m.nexus + '\\s+v?\\d.*$'), '') : m.label;
+const gbx = (mb) => { const s = mb < -0.05 ? '−' : '', a = Math.abs(mb || 0); return s + (a >= 1024 ? (a / 1024).toFixed(2) + ' GB' : a.toFixed(0) + ' MB'); };
 async function renderVram() {
   const page = $('#tab-vram');
   if (!S.state) { page.innerHTML = '<div class="empty">Loading ...</div>'; return; }
-  if (!$('#vr-mods', page)) page.innerHTML = '<div id="vr-apps"></div><div id="vr-mods"></div>';
-  if (!S.gaAt || Date.now() - S.gaAt > 4000) renderGpuApps();
-  const root = $('#vr-mods', page);
+  if (!$('#vr-mods', page)) page.innerHTML = '<div id="vr-top"></div><div id="vr-apps"></div><div id="vr-mods"></div>';
+  if (!S.vrSub) S.vrSub = 'mods';
+  const apps = S.vrSub === 'apps';
+  $('#vr-apps', page).style.display = apps ? '' : 'none';
+  $('#vr-mods', page).style.display = apps ? 'none' : '';
   const st = S.state;
   if (S.vrBuild == null) S.vrBuild = st.config.active || 0;
+  const top = $('#vr-top', page);
+  if (apps) {
+    top.innerHTML = `<div class="rep-head"><div class="title">VRAM</div></div>${vramSeg()}`;
+    bindVram(top);
+    if (!S.gaAt || Date.now() - S.gaAt > 4000) renderGpuApps();
+    return;
+  }
+  const root = $('#vr-mods', page);
   let v;
   try { v = await api('vram', { build: S.vrBuild }); } catch (e) { root.innerHTML = '<div class="card"><span class="lose">' + esc(e.message) + '</span></div>'; return; }
+  if (S.tab !== 'vram' || S.vrSub !== 'mods') return;
   const busy = v.state === 'scanning', r = v.report;
+  S.vr = r;
   if (busy) { clearTimeout(S.vrTimer); S.vrTimer = setTimeout(() => { if (S.tab === 'vram') renderVram(); }, 1000); }
-  const gb = (mb) => mb >= 1024 ? (mb / 1024).toFixed(2) + ' GB' : mb.toFixed(0) + ' MB';
-  let html = `<div class="rep-head"><div class="title">VRAM</div>
+  top.innerHTML = `<div class="rep-head"><div class="title">VRAM</div>
     <div class="cf-builds">${st.config.builds.map((b, i) => `<button class="btn2 small" data-b="${i}" style="${i === S.vrBuild ? 'border-color:var(--accent);color:var(--white)' : ''}">${esc(b.name)}</button>`).join('')}</div>
-    <div class="actions"><button class="btn" id="vr-run" ${busy ? 'disabled' : ''}>${busy ? 'Scanning ...' : 'Scan build'}</button></div></div>`;
+    <div class="actions">${r ? '<button class="btn2" id="vr-copy">Copy summary</button>' : ''}<button class="btn" id="vr-run" ${busy ? 'disabled' : ''}>${busy ? 'Scanning ...' : 'Scan build'}</button></div></div>${vramSeg()}`;
+  bindVram(top);
+  let html = '';
   if (v.state && v.state.startsWith('error')) html += `<div class="card"><span class="lose">${esc(v.state)}</span></div>`;
   if (!r) {
-    html += `<div class="card dim">Not scanned yet. Scan build reads the file tables of the build's mod archives (a few seconds, nothing is unpacked) and adds up the data each mod sends to the graphics card: textures and meshes. With a session of this build it also shows how much of it the game actually loaded.</div>`;
-    root.innerHTML = html; bindVram(root); return;
+    html += `<div class="card dim">Not scanned yet. Scan build reads the file tables of the build's mod archives and of the game's own archives (a few seconds) and adds up the data each mod sends to the graphics card: textures and meshes.
+      It compares every mod file with the game file it replaces, so you see what a mod really adds. With a session of this build it also shows how much of it the game actually loaded.</div>`;
+    root.innerHTML = html; return;
   }
-  const k = (l, val, s, cls) => `<div class="k ${cls || ''}"><div class="l">${l}</div><div class="v">${val}</div>${s ? '<div class="s">' + s + '</div>' : ''}</div>`;
-  html += `<div class="dim small" style="margin:-4px 0 10px">Scanned ${esc(new Date(r.generated).toLocaleString('en-AU'))} in ${r.took_s.toFixed(1)} s · ${r.archives} mod archives${r.session ? ' · "loaded" = your session ' + esc(r.session) : ' · no session of this build yet, so "loaded" is unknown'}</div>`;
-  html += '<div class="kpi">' + k('GPU data in mods', gb(r.total_mb), 'textures + meshes the mods could load') +
-    k('loaded last session', r.session ? gb(r.loaded_mb) : '–', 'what the game really used from mods') +
-    k('textures without mips', r.no_mips, gb(r.no_mips_mb) + ' always loaded at full size', r.no_mips ? 'warn' : 'good') + '</div>';
-  html += `<div class="card"><h2>Mods by GPU data <span class="dimmer small">click a mod for its biggest files</span></h2>
-    <div class="vr-head"><div>mod</div><div class="n">GPU data</div><div class="n">textures</div><div class="n">meshes</div><div class="n">loaded last session</div><div class="n">4K+ textures</div><div class="n">no mips</div></div>
-    ${(r.mods || []).slice(0, 80).map(m => `<details class="vr"><summary class="vr-row"><div><span class="chev">›</span>${esc(m.label)}${m.shadowed_mb >= 1 ? `<div class="dimmer small" style="margin-left:12px">+ ${gb(m.shadowed_mb)} replaced by another mod (never used)</div>` : ''}</div>
-      <div class="n"><b>${gb(m.mb)}</b></div><div class="n">${m.tex_mb >= 0.5 ? gb(m.tex_mb) : '–'}</div><div class="n">${m.mesh_mb >= 0.5 ? gb(m.mesh_mb) : '–'}</div>
-      <div class="n">${r.session ? (m.loaded_mb >= 0.5 ? gb(m.loaded_mb) : '0') : '–'}</div><div class="n">${m.tex_4k || '–'}</div><div class="n">${m.no_mips ? '<span class="lose">' + m.no_mips + '</span>' : '–'}</div></summary>
-      <div class="cf-files">${(m.big || []).map(f => `<div>${f.loaded ? '<span class="tag r">loaded</span> ' : ''}${f.no_mips ? '<span class="tag y">no mips</span> ' : ''}<span class="mono">${esc(f.name)}</span> <span class="dimmer">${f.mb.toFixed(1)} MB · ${esc(f.kind)}${f.dims ? ' ' + esc(f.dims) : f.size ? ' ' + esc(f.size) : ''}</span></div>`).join('')}
-      <div class="dimmer small">${esc(m.archives.join(', '))}</div></div></details>`).join('')}</div>
-    <div class="dimmer small" style="margin-top:8px">GPU data = the unpacked size of the parts of each file that go to the graphics card (texture with its mip levels, mesh vertex/index data), read from the archive's file table. "≈4K" is worked out from a texture's size. Textures without mips are found because their data is exactly width x height x bytes per pixel; UI images, icons and colour LUTs don't need mips and aren't counted.</div>`;
-  root.innerHTML = html; bindVram(root);
+  const cmp = r.vanilla_files > 0;
+  const mods = r.mods || [];
+  const added = (m) => cmp ? m.added_mb : m.mb;
+  const t4 = r.tex_4k != null ? r.tex_4k : mods.reduce((a, m) => a + (m.tex_4k || 0), 0), t8 = r.tex_8k != null ? r.tex_8k : mods.reduce((a, m) => a + (m.tex_8k || 0), 0);
+  html += `<div class="sub">Scanned ${esc(new Date(r.generated).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }))} in ${r.took_s.toFixed(1)} s · ${r.archives} mod archives${cmp ? ' compared with the game\'s own ' + fmt.n(r.vanilla_files) + ' files' : ''}${r.session ? ' · loaded = your session ' + esc(r.session) : ' · no session of this build yet, so "loaded" is unknown'}</div>`;
+  const frac = (x) => r.total_mb > 0 ? Math.max(0, Math.min(1, x / r.total_mb)) : 0;
+  const kp = (l, val, s, dot, f) => `<div class="k"><div class="l">${dot ? '<span class="dot6"></span>' : ''}${l}</div><div class="v">${val}</div><div class="s">${s}</div>${f != null ? `<div class="kbar"><i style="width:${(f * 100).toFixed(0)}%"></i></div>` : ''}</div>`;
+  html += '<div class="kpi5">' +
+    (cmp ? kp('Added on top of the game', gbx(r.added_mb), 'beyond the game files mods replace', r.added_mb >= 1024, frac(r.added_mb)) : kp('Added on top of the game', '–', 'scan again to compare with the game', false, null)) +
+    kp('GPU data in mods', gbx(r.total_mb), cmp ? gbx(r.van_mb) + ' of it replaces game files' : 'textures and meshes the mods could load', false, 1) +
+    kp('Loaded last session', r.session ? gbx(r.loaded_mb) : '–', r.session ? 'what the game really used' : 'no session of this build yet', false, r.session ? frac(r.loaded_mb) : null) +
+    kp('Never used', gbx(r.shadowed_mb || 0), 'copies another mod overrides', (r.shadowed_mb || 0) >= 100, frac(r.shadowed_mb || 0)) +
+    kp('Upscaled textures', cmp ? fmt.n(r.upscaled || 0) : '–', '3.5× the game\'s file or more', (r.upscaled || 0) > 0, null) + '</div>';
+  // findings
+  const finds = [];
+  if (!cmp) finds.push(['Scan again', 'This scan is from an older Frame Lab, or the game\'s own archives weren\'t found. Scan build again to see what each mod adds on top of the game.']);
+  else {
+    const know = [];
+    const big = mods.filter(m => m.mb >= 1024 && m.added_mb < m.mb * 0.1).sort((a, b) => b.mb - a.mb)[0];
+    if (big) know.push(`<b>${esc(modName(big))}</b> holds ${gbx(big.mb)}, but ${gbx(big.van_mb)} of it replaces the game's own files (${fmt.n(big.replaced)} files). It adds ${gbx(big.added_mb)}.`);
+    const most = mods.slice().sort((a, b) => b.added_mb - a.added_mb)[0];
+    if (most && most.added_mb >= 100) know.push(`<b>${esc(modName(most))}</b> adds the most: ${gbx(most.added_mb)}${most.upscaled ? ', ' + most.upscaled + ' upscaled texture' + (most.upscaled > 1 ? 's' : '') : ''}.`);
+    if (know.length) finds.push(['Worth knowing', know.join(' ')]);
+  }
+  const c = r.changes;
+  if (c) {
+    const lab = {};
+    mods.forEach(m => (m.archives || []).forEach(a => { lab[a] = modName(m); }));
+    const names = (l) => { const n = [...new Set(l.map(a => lab[a] || a.split('/').pop()))]; return esc(n.slice(0, 5).join(', ')) + (n.length > 5 ? ' and ' + (n.length - 5) + ' more' : ''); };
+    const parts = [];
+    if (c.added.length) parts.push('added ' + names(c.added));
+    if (c.changed.length) parts.push('changed ' + names(c.changed));
+    if (c.removed.length) parts.push('removed ' + names(c.removed));
+    const since = new Date(c.since).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+    finds.push(['Since last scan', parts.length ? 'Since ' + esc(since) + ': ' + parts.join(' · ') + '.' : 'Nothing changed since ' + esc(since) + '.']);
+  } else if (cmp) finds.push(['Since last scan', '<span class="dimmer">First scan with this version. The next scan lists the mods added, changed or removed since this one.</span>']);
+  if (cmp) {
+    const br = r.broken || [];
+    const ch = [br.length ? `<span class="badc">${br.length} broken archive${br.length > 1 ? 's' : ''}</span>: ${br.slice(0, 3).map(b => '<b>' + esc(b.archive) + '</b> (' + esc(b.reason) + ')').join(', ')}` : '<span class="goodc">No broken archives</span>',
+      r.same ? `<span class="warnc">${fmt.n(r.same)} file${r.same > 1 ? 's' : ''} identical to the game's own</span> (${gbx(r.same_mb)}, they change nothing)` : '<span class="goodc">no files identical to the game\'s own</span>',
+      r.no_mips ? `<span class="warnc">${fmt.n(r.no_mips)} texture${r.no_mips > 1 ? 's' : ''} without mips</span> (${gbx(r.no_mips_mb)}, always loaded at full size)` : '<span class="goodc">every texture has mips</span>',
+      t4 ? `${fmt.n(t4)} texture${t4 > 1 ? 's' : ''} 4K or bigger${t8 ? `, <span class="warnc">${fmt.n(t8)} of them 8K</span>` : ', none 8K'}` : 'no 4K textures'];
+    const shr = mods.reduce((a, m) => a + (m.shrink_mb || 0), 0), one = mods.reduce((a, m) => a + (m.one_lod || 0), 0);
+    if (shr >= 1) ch.push(`one level less on every 2K+ mod texture would save <b>${gbx(shr)}</b>`);
+    if (one) ch.push(`<span class="warnc">${fmt.n(one)} big mesh${one > 1 ? 'es' : ''} without LODs</span>`);
+    finds.push(['Checks', ch.join(' · ')]);
+  }
+  html += finds.map(f => `<div class="find"><span class="fk">${f[0]}</span><span>${f[1]}</span></div>`).join('');
+  // the table
+  const key = S.vrSort || (cmp ? 'added' : 'mb');
+  const val = (m) => key === 'added' ? added(m) : key === 'loaded' ? m.loaded_mb : key === 'tex4k' ? (m.tex_8k || 0) * 1e4 + (m.tex_4k || 0) : m.mb;
+  const list = mods.slice().sort((a, b) => val(b) - val(a));
+  const shown = S.vrAll ? list : list.slice(0, 15);
+  const maxAdd = Math.max(1, ...list.map(added));
+  const sortBtn = (k, t) => `<button data-sort="${k}" class="${key === k ? 'on' : ''}">${t}</button>`;
+  html += `<div class="sec2"><h2><span class="no">01</span>Mods by ${key === 'added' ? 'what they add' : key === 'loaded' ? 'what the game loaded' : key === 'tex4k' ? '4K and 8K textures' : 'GPU data'}</h2><span class="dimmer small">click a mod for its files</span>
+    <div class="r"><span>Sort by</span>${cmp ? sortBtn('added', 'added') : ''}${sortBtn('mb', 'GPU data')}${r.session ? sortBtn('loaded', 'loaded') : ''}${sortBtn('tex4k', '4K+')}</div></div>`;
+  const row = (m) => {
+    const open = S.vrOpen && S.vrOpen.has(m.label);
+    const notes = [];
+    if (cmp && m.replaced && m.mb >= 100 && Math.abs(m.added_mb) < m.mb * 0.05) notes.push('replaces ' + fmt.n(m.replaced) + ' game files with ones of about the same size');
+    if (m.shadowed_mb >= 1) notes.push(gbx(m.shadowed_mb) + ' of it overridden by another mod (never used)');
+    if (m.same) notes.push(fmt.n(m.same) + ' file' + (m.same > 1 ? 's' : '') + ' identical to the game\'s own');
+    let h = `<tr class="m${open ? ' open' : ''}" data-m="${esc(m.label)}"><td title="${esc(m.label)}">${esc(modName(m))}${m.nexus ? `<span class="meta link" data-nx="${esc(m.nexus)}" title="Open the mod's Nexus page">Nexus ${esc(m.nexus)}</span>` : ''}${notes.map(n => '<div class="note">' + esc(n) + '</div>').join('')}</td>
+      <td class="hi">${gbx(added(m))}<div class="rbar"><i style="width:${Math.max(0, added(m) / maxAdd * 100).toFixed(0)}%"></i></div></td><td>${gbx(m.mb)}</td><td>${cmp && m.van_mb >= 0.5 ? gbx(m.van_mb) : '–'}</td>
+      <td>${r.session ? (m.loaded_mb >= 0.5 ? gbx(m.loaded_mb) : '0') : '–'}</td><td>${m.upscaled || '–'}</td><td>${m.tex_4k ? m.tex_4k + (m.tex_8k ? `<div class="warnc">${m.tex_8k} 8K</div>` : '') : '–'}</td><td>${m.shadowed_mb >= 0.5 ? gbx(m.shadowed_mb) : '–'}</td></tr>`;
+    if (open) {
+      const up = (m.up || []).map(u => `<div class="f"><u>${u.van_mb > 0 ? Math.round(u.mb / u.van_mb) + '×' : 'new'}</u>${esc(u.name)}<i>game ${u.van_mb.toFixed(1)} MB → ${u.mb.toFixed(1)} MB${u.size ? ', ' + esc(u.size.replace('≈', 'about ')) : ''}</i></div>`).join('');
+      const big = (m.big || []).map(f => `<div class="f">${f.loaded ? '<u style="color:var(--accent)">loaded</u>' : ''}${f.no_mips ? '<u>no mips</u>' : ''}${esc(f.name)}<i>${f.mb.toFixed(1)} MB · ${esc(f.kind)}${f.dims ? ' ' + esc(f.dims) : f.size ? ' ' + esc(f.size) : ''}</i></div>`).join('');
+      h += `<tr class="files"><td colspan="8">${up ? '<div class="f"><i style="margin:0">Upscaled the most</i></div>' + up + (m.upscaled > (m.up || []).length ? `<div class="f"><i style="margin:0">and ${m.upscaled - m.up.length} more upscaled</i></div>` : '') : ''}
+        ${big ? '<div class="f" style="margin-top:6px"><i style="margin:0">Biggest files</i></div>' + big : ''}
+        ${m.shrink_n ? `<div class="f" style="margin-top:6px"><i style="margin:0">One level less on its ${m.shrink_n} texture${m.shrink_n > 1 ? 's' : ''} of 2K or more would save <b>${gbx(m.shrink_mb)}</b> of VRAM (exact: their top levels). Shrinking itself isn't in this test build.</i></div>` : ''}
+        ${m.one_lod ? `<div class="f" style="margin-top:6px"><i style="margin:0">${m.one_lod} mesh${m.one_lod > 1 ? 'es' : ''} of 2 MB+ with a single level of detail (${gbx(m.one_lod_mb)}): drawn at full detail at any distance</i></div>` + (m.one_lod_list || []).map(x => `<div class="f">${esc(x)}</div>`).join('') : ''}
+        <div class="f"><i style="margin:6px 0 0">${esc((m.archives || []).join(', '))}${m.nexus ? ' · <span class="meta link" data-nx="' + esc(m.nexus) + '" style="margin:0">open on Nexus</span>' : ''}</i></div></td></tr>`;
+    }
+    return h;
+  };
+  html += `<table class="vt"><tr><th>Mod</th><th>Added</th><th>GPU data</th><th>Replaces</th><th>Loaded last session</th><th>Upscaled</th><th>4K+ textures</th><th>Never used</th></tr>${shown.map(row).join('')}</table>`;
+  if (list.length > 15) html += `<div class="more"><button class="btn2 small" id="vr-all">${S.vrAll ? 'Show the top 15' : 'Show all ' + list.length + ' mods'}</button></div>`;
+  html += `<div class="foot">GPU data: the unpacked size of the parts of each file that go to the graphics card (a texture with its mip levels, a mesh's vertex and index data), read from the archives' file tables.
+    Replaces: the size of the game's own files the mod swaps out; Added = GPU data − Replaces, which can be below zero when a mod's files are smaller than the game's.
+    Upscaled: textures 3.5× the size of the game's file or more. 4K+: textures 4096 pixels or more on their longest side (8K: 8192 or more), read from the texture's header or, when that can't be read, estimated from its size. Never used: copies of files another mod wins over (load order).
+    Textures without mips are found because their data is exactly width × height × bytes per pixel; UI images, icons and colour LUTs don't need mips and aren't counted.</div>`;
+  root.innerHTML = html;
+  $$('[data-sort]', root).forEach(b => b.onclick = () => { S.vrSort = b.dataset.sort; renderVram(); });
+  const all = $('#vr-all', root);
+  if (all) all.onclick = () => { S.vrAll = !S.vrAll; renderVram(); };
+  $$('tr.m', root).forEach(tr => tr.onclick = (e) => {
+    if (e.target.closest('[data-nx]')) return;
+    S.vrOpen = S.vrOpen || new Set();
+    const k = tr.dataset.m;
+    if (S.vrOpen.has(k)) S.vrOpen.delete(k); else S.vrOpen.add(k);
+    renderVram();
+  });
+  $$('[data-nx]', root).forEach(a => a.onclick = (e) => { e.stopPropagation(); api('open', { what: 'nexus', id: a.dataset.nx }).catch(err => toast(err.message, true)); });
+}
+function vramSeg() {
+  return `<div class="seg"><button data-sub="mods" class="${S.vrSub === 'mods' ? 'on' : ''}">Mods</button><button data-sub="apps" class="${S.vrSub === 'apps' ? 'on' : ''}">Programs on the graphics card</button></div>`;
+}
+function vramSummary(r) {
+  const b = (S.state.config.builds[S.vrBuild] || {}).name || r.build;
+  const cmp = r.vanilla_files > 0;
+  const L = [`Frame Lab VRAM scan: ${b}, ${new Date(r.generated).toLocaleString('en-AU')}`,
+    `GPU data in mods: ${gbx(r.total_mb)}` + (cmp ? `, of which ${gbx(r.van_mb)} replaces the game's own files. Added on top of the game: ${gbx(r.added_mb)}` : ''),
+    r.session ? `Loaded in the last session: ${gbx(r.loaded_mb)}` : '',
+    `Never used (overridden by another mod): ${gbx(r.shadowed_mb || 0)}` + (cmp ? `. Upscaled textures: ${r.upscaled || 0}. Textures without mips: ${r.no_mips}` : '') + (r.tex_4k != null ? `. 4K or bigger: ${r.tex_4k} (8K: ${r.tex_8k || 0})` : ''), '',
+    cmp ? 'Mods by what they add:' : 'Mods by GPU data:'];
+  (r.mods || []).slice().sort((x, y) => (cmp ? y.added_mb - x.added_mb : y.mb - x.mb)).slice(0, 15).forEach((m, i) => {
+    L.push(`${i + 1}. ${modName(m)}: ${cmp ? 'adds ' + gbx(m.added_mb) + ' (' + gbx(m.mb) + ' GPU data)' : gbx(m.mb)}${m.upscaled ? ', ' + m.upscaled + ' upscaled' : ''}${m.tex_8k ? ', ' + m.tex_8k + ' 8K textures' : ''}`);
+  });
+  return L.filter((l, i) => l !== '' || i === 4).join('\n');
+}
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) { /* fall back */ }
+  const ta = document.createElement('textarea');
+  ta.value = t; document.body.appendChild(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { /* ignore */ }
+  ta.remove();
+  return ok;
 }
 function bindVram(root) {
-  $$('[data-b]', root).forEach(b => b.onclick = () => { S.vrBuild = +b.dataset.b; renderVram(); });
+  $$('[data-b]', root).forEach(b => b.onclick = () => { S.vrBuild = +b.dataset.b; S.vrOpen = null; renderVram(); });
+  $$('[data-sub]', root).forEach(b => b.onclick = () => { S.vrSub = b.dataset.sub; if (S.vrSub === 'apps') S.gaAt = 0; renderVram(); });
   const run = $('#vr-run', root);
   if (run) run.onclick = async () => { run.disabled = true; try { await api('vram/scan', { build: S.vrBuild }); } catch (e) { toast(e.message, true); } setTimeout(renderVram, 300); };
+  const cp = $('#vr-copy', root);
+  if (cp) cp.onclick = async () => { if (S.vr && await copyText(vramSummary(S.vr))) toast('Summary copied'); else toast('Could not copy', true); };
 }
 
 /* programs on the graphics card (VRAM tab, live) */
@@ -827,9 +993,9 @@ async function renderGpuApps(note) {
   S.gaAt = Date.now();
   let g;
   try { g = await api('gpuapps'); } catch (e) { host.innerHTML = '<div class="card"><span class="lose">' + esc(e.message) + '</span></div>'; return; }
-  if (S.tab !== 'vram') return;
+  if (S.tab !== 'vram' || S.vrSub !== 'apps') return;
   const playing = g.game_running || (S.state && S.state.game && S.state.game.running);
-  if (!playing) S.gaTimer = setTimeout(() => { if (S.tab === 'vram' && !S.gaHold) renderGpuApps(); }, 5000); // paused while the game runs
+  if (!playing) S.gaTimer = setTimeout(() => { if (S.tab === 'vram' && S.vrSub === 'apps' && !S.gaHold) renderGpuApps(); }, 5000); // paused while the game runs
   const gb = (mb) => mb >= 1000 ? (mb / 1024).toFixed(2) + ' GB' : Math.round(mb) + ' MB';
   const k = (l, val, sub, cls) => `<div class="k ${cls || ''}"><div class="l">${l}</div><div class="v">${val}</div>${sub ? '<div class="s">' + sub + '</div>' : ''}</div>`;
   const main = g.main, ig = g.integrated;
@@ -839,7 +1005,7 @@ async function renderGpuApps(note) {
     a.pref === '1073741824' ? 'Chosen GPU: ' + esc(short(a.pref_gpu) || 'another card') : a.pref ? 'other (' + esc(a.pref) + ')' : '<span class="dimmer">not set</span>';
   const list = g.apps || [];
   const sugg = list.filter(a => a.class === 'suggest' && a.can && a.running && !a.to_igpu && !a.shared && a.main_mb >= 20);
-  let html = `<div class="card" style="margin-bottom:14px"><div class="rep-head" style="margin-bottom:8px"><div class="title">Programs on the graphics card</div><span class="dimmer small">${playing ? 'paused while the game runs · ' + new Date().toLocaleTimeString('en-AU') : 'right now · refreshes every 5 s'}</span>
+  let html = `<div><div class="rep-head" style="margin-bottom:8px"><span class="dimmer small">${playing ? 'paused while the game runs · ' + new Date().toLocaleTimeString('en-AU') : 'right now · refreshes every 5 s'}</span>
     <div class="actions">${playing ? '<button class="btn2" id="ga-refresh">Refresh</button>' : ''}<button class="btn" id="ga-all" ${!ig || !sugg.length ? 'disabled' : ''}>Move all suggested${sugg.length ? ' (' + sugg.length + ')' : ''}</button></div></div>`;
   if (g.error) html += `<div class="gnote" style="margin-bottom:10px">${esc(g.error)}</div>`;
   if (g.game_warn) html += `<div class="gnote" style="margin-bottom:10px">${esc(g.game_warn)}</div>`;
@@ -919,24 +1085,64 @@ async function renderExperiments(note) {
   if (S.exBuild == null) S.exBuild = st.config.active || 0;
   if (!S.ex) root.innerHTML = '<div class="empty">Reading the current Windows settings ...</div>';
   try { S.ex = await api('experiments', { build: S.exBuild }); } catch (e) { root.innerHTML = '<div class="card"><span class="lose">' + esc(e.message) + '</span></div>'; return; }
-  const list = S.ex.list || [];
+  if (S.tab !== 'experiments') return;
+  const list = S.ex.list || [], groups = S.ex.groups || [{ id: '', title: 'Settings', sub: '' }];
+  S.exOpen = S.exOpen || new Set();
+  const cpu = S.ex.cpu;
+  const noBtn = (x) => !x.ok || x.info || (x.id === 'gamebar' && x.on && !x.ours);
   const row = (x) => {
-    const state = x.action ? '' : !x.ok ? '<span class="tag">not available</span>' : x.on ? '<span class="tag g">ON</span>' : '<span class="tag">off</span>';
-    const btn = !x.ok ? '' : x.action ? `<button class="btn2 small" data-run="${x.id}">Run now</button>`
+    const open = S.exOpen.has(x.id);
+    const state = (x.action && x.id !== 'hvci') || !x.ok ? '' : `<span class="st${x.on ? ' on' : ''}"><i></i>${x.on ? 'On' : 'Off'}</span>`;
+    const btn = noBtn(x) ? '' : x.action ? `<button class="btn2 small" data-run="${x.id}">${x.id === 'hvci' ? 'Open Windows Security' : 'Run now'}</button>`
       : x.on ? `<button class="btn2 small" data-set="${x.id}" data-on="0">${x.ours ? 'Undo' : 'Turn off'}</button>` : `<button class="btn2 small${x.warn ? ' warn' : ''}" data-set="${x.id}" data-on="1">Turn on</button>`;
-    return `<div class="ex-row${x.warn ? ' warn' : ''}"><div class="ex-main"><div class="ex-name">${esc(x.name)} ${state}</div>
-      <div class="ex-what">${esc(x.what)}</div><div class="ex-exp">${esc(x.expect)}</div>
-      ${x.risk ? `<div class="ex-risk">Risk: ${esc(x.risk)}</div>` : ''}
-      <div class="dimmer small">${x.detail ? 'Now: ' + esc(x.detail) + ' · ' : ''}takes effect ${esc(x.when)}${x.ours ? ' · switched on by Frame Lab ' + esc(x.since) + ' (Undo puts back exactly what was there)' : x.on && !x.action ? ' · switched on outside Frame Lab: Turn off sets the Windows default' : ''}</div></div>
-      <div class="ex-btn">${btn}</div></div>`;
+    const em = !x.ok && x.detail ? x.detail : x.short;
+    let h = `<div class="exl${open ? ' open' : ''}${!x.ok ? ' na' : ''}" data-x="${x.id}"><span class="ch">›</span>
+      <div class="nm">${esc(x.name)}${x.new ? '<small>new</small>' : ''}${em ? `<em class="${x.warn && x.short === em ? 'warnc' : ''}">${esc(em)}</em>` : ''}</div>
+      <div>${state}</div><div class="bt">${btn}</div></div>`;
+    if (open) {
+      const meta = [];
+      if (x.detail && x.ok) meta.push('Now: ' + esc(x.detail));
+      meta.push('Takes effect ' + esc(x.when));
+      if (x.ours) meta.push('switched on by Frame Lab ' + esc(x.since) + ' (Undo puts back exactly what was there)');
+      else if (x.on && !x.action && !x.info && !noBtn(x)) meta.push('switched on outside Frame Lab: Turn off sets the Windows default');
+      h += `<div class="exd"><div class="w">${esc(x.what)}</div><div class="e">${esc(x.expect)}</div>${x.risk ? `<div class="x">Risk: ${esc(x.risk)}</div>` : ''}<div class="m">${meta.join(' · ')}</div></div>`;
+    }
+    return h;
   };
+  let n = 0, body = '';
+  const no = () => `<span class="no">${String(++n).padStart(2, '0')}</span>`;
+  groups.forEach(g => {
+    const items = list.filter(x => (x.group || '') === g.id || (!g.id));
+    if (items.length) {
+      const sub = g.id === 'cpu' && cpu && cpu.cores ? g.sub + ' · ' + cpu.name + ', ' + (cpu.hybrid ? cpu.p_cores + ' performance + ' + cpu.e_cores + ' efficiency cores' : cpu.cores + ' cores') : g.sub;
+      body += `<div class="exg"><div class="gh"><h2>${no()}${esc(g.title)}</h2><span>${esc(sub)}</span></div>${items.map(row).join('')}</div>`;
+    }
+    if (g.id === 'cpu') body += nvProfileHtml(no);
+  });
   root.innerHTML = `<div class="rep-head"><div class="title">Experiments</div>
-    <div class="cf-builds">${st.config.builds.map((b, i) => `<button class="btn2 small" data-b="${i}" style="${i === S.exBuild ? 'border-color:var(--accent);color:var(--white)' : ''}">${esc(b.name)}</button>`).join('')}</div></div>
-    <div class="card" style="margin-bottom:12px"><div class="dim">Windows settings people change to make games run better.
-      Switch one on, play a session, and Compare it with a session without it: every session remembers which of these were on. Change one thing at a time, or you won't know which one did it.</div>
-      ${note ? `<div style="margin-top:8px" class="${note.err ? 'lose' : 'win'}">${esc(note.text)}</div>` : ''}</div>
-    <div class="card">${list.map(row).join('')}</div>`;
+    <div class="cf-builds">${st.config.builds.map((b, i) => `<button class="btn2 small" data-b="${i}" style="${i === S.exBuild ? 'border-color:var(--accent);color:var(--white)' : ''}">${esc(b.name)}</button>`).join('')}</div>
+    <div class="actions"><button class="btn2" id="ex-undoall" title="Every setting Frame Lab changed (Experiments and Checks fixes) goes back to exactly what was there before">Undo everything</button><button class="btn2" id="ex-cmp">Compare sessions</button></div></div>
+    <div class="dim" style="max-width:900px">Windows and driver settings people change to make games run better. Switch one on, play a session, then compare it with a session without it.
+      Every session remembers what was on. Change one thing at a time. Click a setting for what it does.</div>
+    ${note ? `<div style="margin-top:10px" class="${note.err ? 'lose' : 'win'}">${esc(note.text)}</div>` : ''}${body}`;
   $$('[data-b]', root).forEach(b => b.onclick = () => { S.exBuild = +b.dataset.b; S.ex = null; renderExperiments(); });
+  $('#ex-cmp', root).onclick = () => showTab('compare');
+  $('#ex-undoall', root).onclick = async (e) => {
+    const b = e.currentTarget;
+    if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Click again to undo everything'; b.classList.add('warn'); setTimeout(() => { if (b.isConnected) { delete b.dataset.armed; b.textContent = 'Undo everything'; b.classList.remove('warn'); } }, 4000); return; }
+    b.disabled = true; b.textContent = '...';
+    try {
+      const r = await api('undo/everything', {});
+      const errs = r.errors || [];
+      renderExperiments({ err: errs.length > 0, text: (r.undone ? `Put back ${r.undone} change${r.undone === 1 ? '' : 's'}: everything Frame Lab changed is back to how it was.` : 'Nothing to undo: Frame Lab has no changes on.') + (errs.length ? ' Could not undo: ' + errs.join('; ') : '') });
+    } catch (err) { renderExperiments({ err: true, text: 'Undo everything: ' + err.message }); }
+  };
+  $$('.exl', root).forEach(el => el.onclick = (e) => {
+    if (e.target.closest('button')) return;
+    const id = el.dataset.x;
+    if (S.exOpen.has(id)) S.exOpen.delete(id); else S.exOpen.add(id);
+    renderExperiments(note);
+  });
   $$('[data-set]', root).forEach(b => b.onclick = async () => {
     const x = list.find(e => e.id === b.dataset.set), on = b.dataset.on === '1';
     if (on && x.warn && !exConfirm(x)) return;
@@ -952,11 +1158,89 @@ async function renderExperiments(note) {
     catch (e) { renderExperiments({ err: true, text: x.name + ': ' + e.message }); }
   });
 }
+// the NVIDIA driver's settings for the game, read only
+function nvProfileHtml(no) {
+  const p = S.ex.nvprofile, err = S.ex.nverror;
+  if ((!p || !p.length) && (!err || /^no NVIDIA driver/.test(err))) return '';
+  let h = `<div class="exg"><div class="gh"><h2>${no()}NVIDIA driver profile</h2><span>Cyberpunk 2077 · what the driver uses now · only the NVIDIA switches under Graphics driver change it</span></div>`;
+  if (p && p.length) {
+    h += '<div class="kvg">' + p.map(s => `<div class="kv"${s.note ? ` title="${esc(s.note)}"` : ''}><span class="a">${esc(s.name)}</span><span class="b">${esc(s.value)}<small>${esc(s.from)}</small></span></div>`).join('') + '</div>';
+    h += '<div class="foot" style="margin-top:8px">Read from the NVIDIA driver: the game\'s own profile first, then the global profile. Change them in the NVIDIA app or NVIDIA Control Panel. A frame cap or V-sync set here applies on top of the game\'s own settings.</div>';
+  } else h += `<div class="dimmer" style="padding:9px 0">Could not read the driver profile: ${esc(err)}</div>`;
+  return h + '</div>';
+}
 // Experiments: click twice to switch on a risky one (its own name, apart from the session dialog's confirmBox)
 function exConfirm(x) {
   if (exConfirm._armed === x.id) { exConfirm._armed = null; return true; }
   exConfirm._armed = x.id;
   toast(x.name + ': ' + (x.risk || 'are you sure?') + ' Click again to go ahead.', true);
+  return false;
+}
+
+/* ------------------------------------------------------------------ checks */
+// read only, except the few fixes a row offers; every fix is kept in the undo journal
+const CK_CLASS = { fine: 'ok', check: 'chk', found: 'chk', info: 'nfo', na: 'na' };
+const CK_RISKY = { bcd_clear: 'changes the Windows boot settings (needs a restart). If BitLocker is on, have the recovery key at hand.', cpusets_clear: 'changes a Windows kernel setting (needs a restart).' };
+async function renderChecks(note, fresh) {
+  const root = $('#tab-checks');
+  if (!S.state) { root.innerHTML = '<div class="empty">Loading ...</div>'; return; }
+  const st = S.state;
+  if (S.ckBuild == null) S.ckBuild = st.config.active || 0;
+  if (!S.ck || fresh) root.innerHTML = '<div class="empty">Reading the PC and the game folder ...</div>';
+  try { S.ck = await api('checks', { build: S.ckBuild, fresh: !!fresh }); } catch (e) { root.innerHTML = '<div class="card"><span class="lose">' + esc(e.message) + '</span></div>'; return; }
+  if (S.tab !== 'checks') return;
+  const rep = S.ck.report, undo = new Set((S.ck.undo || []).map(u => u.id));
+  S.ckOpen = S.ckOpen || new Set();
+  let n = 0, body = '', flagged = 0;
+  const no = () => `<span class="no">${String(++n).padStart(2, '0')}</span>`;
+  for (const g of rep.groups || []) {
+    body += `<div class="exg"><div class="gh"><h2>${no()}${esc(g.title)}</h2><span>${esc(g.sub)}</span></div>`;
+    for (const x of g.rows || []) {
+      const cls = CK_CLASS[x.status] || 'nfo', key = g.id + '/' + x.id, open = S.ckOpen.has(key) && x.what;
+      if (cls === 'chk') flagged++;
+      let btn = '';
+      if (x.action) btn = `<button class="btn2 small${cls === 'chk' ? ' warn' : ''}" data-ck="${esc(x.action)}">${esc(x.action_label)}</button>`;
+      else if (x.undo_id && undo.has(x.undo_id)) btn = `<button class="btn2 small" data-ckundo="${esc(x.undo_id)}">Undo</button>`;
+      body += `<div class="exl${cls === 'na' ? ' na' : ''}${open ? ' open' : ''}" data-ckrow="${esc(key)}"><span class="ch">${x.what ? '›' : ''}</span>
+        <div class="nm">${esc(x.name)}<em class="${cls === 'chk' ? 'warnc' : ''}">${esc(x.detail)}</em></div>
+        <div>${x.label ? `<span class="st ${cls}"><i></i>${esc(x.label)}</span>` : ''}</div><div class="bt">${btn}</div></div>`;
+      if (open) body += `<div class="exd"><div class="w">${esc(x.what)}</div>${x.undo_id && undo.has(x.undo_id) ? '<div class="m">Fixed by Frame Lab: Undo puts back exactly what was there.</div>' : ''}</div>`;
+    }
+    body += '</div>';
+  }
+  const at = rep.at ? new Date(rep.at).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+  root.innerHTML = `<div class="rep-head"><div class="title">Checks</div>
+    <div class="cf-builds">${st.config.builds.map((b, i) => `<button class="btn2 small" data-b="${i}" style="${i === S.ckBuild ? 'border-color:var(--accent);color:var(--white)' : ''}">${esc(b.name)}</button>`).join('')}</div>
+    <div class="actions"><button class="btn" id="ck-run">Run checks</button></div></div>
+    <div class="dim" style="max-width:900px">Things that quietly cost frames or add stutter. Frame Lab only reads here. Where something can be changed, the row says how, and Undo puts it back.
+    Checked ${esc(at)} · ${flagged ? flagged + ' to look at' : 'nothing to look at'} · run again after you change something.</div>
+    ${note ? `<div style="margin-top:10px" class="${note.err ? 'lose' : 'win'}">${esc(note.text)}</div>` : ''}${body}`;
+  $$('[data-b]', root).forEach(b => b.onclick = () => { S.ckBuild = +b.dataset.b; S.ck = null; renderChecks(); });
+  $('#ck-run', root).onclick = () => renderChecks(null, true);
+  $$('[data-ckrow]', root).forEach(el => el.onclick = (e) => {
+    if (e.target.closest('button')) return;
+    const k = el.dataset.ckrow;
+    if (S.ckOpen.has(k)) S.ckOpen.delete(k); else S.ckOpen.add(k);
+    renderChecks(note);
+  });
+  $$('[data-ck]', root).forEach(b => b.onclick = async () => {
+    const id = b.dataset.ck;
+    if (id.startsWith('goto:')) { showTab(id.slice(5)); return; }
+    if (CK_RISKY[id] && !ckConfirm(id)) return;
+    b.disabled = true; b.textContent = '...';
+    try { const r = await api('checks/act', { build: S.ckBuild, id }); renderChecks({ text: r.message }, true); }
+    catch (e) { renderChecks({ err: true, text: e.message }, true); }
+  });
+  $$('[data-ckundo]', root).forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = '...';
+    try { await api('undo/one', { id: b.dataset.ckundo }); renderChecks({ text: 'Put back how it was.' }, true); }
+    catch (e) { renderChecks({ err: true, text: e.message }, true); }
+  });
+}
+function ckConfirm(id) {
+  if (ckConfirm._armed === id) { ckConfirm._armed = null; return true; }
+  ckConfirm._armed = id;
+  toast('This ' + CK_RISKY[id] + ' Click again to go ahead.', true);
   return false;
 }
 
@@ -1077,7 +1361,7 @@ function renderSettings(force) {
     <div style="margin-top:16px;display:flex;gap:10px"><button class="btn" id="set-save">Save</button><span class="dim small" id="set-msg"></span></div></div>
     <div class="card" style="max-width:1020px;margin-top:14px"><h2>Parts</h2><div id="set-info"></div></div>
     <div class="card" style="max-width:1020px;margin-top:14px"><h2>About</h2><div class="dim">Night City Frame Lab ${esc(st.version)}<br>
-      PresentMon by Intel (MIT). uPlot by Leon Sorokin (MIT). go-webview2 by John Chadwick (MIT). HitchRecorder uses MinHook by Tsuda Kageyu (BSD-2); its REDscript and CET timing is our own code (mapping script functions to their files at load is an idea from jekky's redscript-dap, MIT; the CET part reads LuaJIT's data layout, MIT).
+      PresentMon by Intel (MIT). uPlot by Leon Sorokin (MIT). go-webview2 by John Chadwick (MIT). Inter and IBM Plex Mono fonts (SIL OFL 1.1). HitchRecorder uses MinHook by Tsuda Kageyu (BSD-2); its REDscript and CET timing is our own code (mapping script functions to their files at load is an idea from jekky's redscript-dap, MIT; the CET part reads LuaJIT's data layout, MIT).
       File names come from WolvenKit's path list on this PC.</div></div>`;
   root.dataset.built = '1';
   const dirty = () => { S.settingsDirty = true; $('#set-msg').textContent = 'unsaved changes'; };
