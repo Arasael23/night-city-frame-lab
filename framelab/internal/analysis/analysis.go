@@ -40,9 +40,15 @@ type Result struct {
 	Shaders   ShaderInfo      `json:"shaders"`
 	Advice    []Advice        `json:"advice"`
 	Warnings  []string        `json:"warnings"`
-	Pacing    *Pacing         `json:"pacing,omitempty"`   // how evenly frames reached the screen (1.4+)
-	Windows   *WinSummary     `json:"windows,omitempty"`  // Windows event recorder (1.4+)
-	GpuApps   *GpuAppsSummary `json:"gpu_apps,omitempty"` // other programs on the graphics card (1.4+)
+	Pacing    *Pacing         `json:"pacing,omitempty"`     // how evenly frames reached the screen (1.4+)
+	Windows   *WinSummary     `json:"windows,omitempty"`    // Windows event recorder (1.4+)
+	GpuApps   *GpuAppsSummary `json:"gpu_apps,omitempty"`   // other programs on the graphics card (1.4+)
+	Crash     *CrashInfo      `json:"crash,omitempty"`      // the session ended in a crash / GPU hang (2.0+)
+	Marks     []FeltMark      `json:"felt_marks,omitempty"` // F10 "I felt a stutter" marks (2.0+)
+	SysEvents []SysEvent      `json:"sys_events,omitempty"` // Windows System log: driver resets, hardware errors (2.0+)
+	Loads     *LoadTimes      `json:"load_times,omitempty"` // start to menu, loading screens (2.0+)
+	Snapshot  *Snapshot       `json:"snapshot,omitempty"`   // versions, settings and mod files at the start (2.0+)
+	Blocks    []BlockStat     `json:"blocks,omitempty"`     // 30 s stretches of play, for Compare's noise check (2.0+)
 }
 
 type KPI struct {
@@ -75,6 +81,10 @@ type KPI struct {
 	CommitLimitMB  float64 `json:"commit_limit_mb,omitempty"`
 	OthersVramMB   float64 `json:"others_vram_mb,omitempty"` // graphics memory other programs held on the game's card while playing (median, 1.4+)
 	SlowdownKnown  bool    `json:"slowdown_known"`           // the card's driver says why it lowers its clocks (NVIDIA)
+	StutterPct     float64 `json:"stutter_pct"`              // frames over 2.5x the average frame time, % of all (2.0)
+	FrameSD        float64 `json:"frame_sd_ms"`              // spread of the frame times (standard deviation, 2.0)
+	CpuTempMax     float64 `json:"cpu_temp_max,omitempty"`   // hottest CPU reading while playing (2.0, when recorded)
+	InputLagMs     float64 `json:"input_lag_ms,omitempty"`   // PresentMon's input-to-photon latency, median (2.0, when it has it)
 }
 
 // a screen reset (the game re-applying full screen / rebuilding its screen buffers) and what followed
@@ -129,6 +139,14 @@ type Timeline struct {
 	NotPlaying   [][2]float64 `json:"not_playing"`              // loading screens, main menu: shown, left out of the numbers
 	Focus        [][2]float64 `json:"focus"`                    // parts marked with F11 (session mode)
 	T0Qpc        int64        `json:"t0_qpc"`                   // QPC at t = 0 (for the timeline export)
+}
+
+// BlockStat: one 30 s stretch of play (2.0). Compare uses the spread between stretches to tell a
+// real change from run-to-run noise.
+type BlockStat struct {
+	MedianMs float64 `json:"median_ms"`
+	P99Ms    float64 `json:"p99_ms"` // 1% low frame time
+	Frames   int     `json:"frames"`
 }
 
 type Marker struct {
@@ -244,6 +262,10 @@ type data struct {
 func (d *data) qpcToUnix(q int64) float64 { return d.anchorU + float64(q-d.anchorQ)*1000.0/d.freq }
 func (d *data) unixToQpc(u float64) int64 { return d.anchorQ + int64((u-d.anchorU)*d.freq/1000.0) }
 
+// ResultVersion goes up when the analysis gains something new; older analysis.json files are
+// rebuilt when a session is opened (if its recording is still there).
+const ResultVersion = 2
+
 // Run analyses the session folder and writes analysis.json.
 func Run(dir string, env Env) (*Result, error) {
 	meta, err := ReadMeta(dir)
@@ -251,7 +273,7 @@ func Run(dir string, env Env) (*Result, error) {
 		return nil, fmt.Errorf("session.json: %w", err)
 	}
 	d := &data{meta: meta}
-	res := &Result{Version: 1, Generated: time.Now(), Meta: meta}
+	res := &Result{Version: ResultVersion, Generated: time.Now(), Meta: meta}
 	warn := func(f string, a ...any) { res.Warnings = append(res.Warnings, fmt.Sprintf(f, a...)) }
 
 	if f, err := hrec.Read(filepath.Join(dir, FileHitch)); err == nil {
@@ -521,9 +543,73 @@ func Run(dir string, env Env) (*Result, error) {
 		sort.Float64s(sorted)
 		res.KPI.Frames = n
 		res.KPI.MedianMs = pctl(sorted, 50)
-		res.KPI.AvgFps = float64(n) / (sum / 1000)
 		res.KPI.Low1Fps = 1000 / pctl(sorted, 99)
 		res.KPI.Low01Fps = 1000 / pctl(sorted, 99.9)
+		// A "frame" of 5 s or more is the game hung or stopped (a crash, a debugger), not play: it is
+		// still a spike, but it would swamp the average and the spread. 2.0
+		const stopMs = 5000
+		kept, keptSum := 0, 0.0
+		for _, v := range ms {
+			if v < stopMs {
+				kept++
+				keptSum += v
+			}
+		}
+		if kept == 0 {
+			kept, keptSum = n, sum
+		}
+		res.KPI.AvgFps = float64(kept) / (keptSum / 1000)
+		// 2.0: share of frames over 2.5x the average, and how spread out the frame times are
+		avg := keptSum / float64(kept)
+		over, sq := 0, 0.0
+		for _, v := range ms {
+			if v >= stopMs && kept < n {
+				continue
+			}
+			if v > 2.5*avg {
+				over++
+			}
+			sq += (v - avg) * (v - avg)
+		}
+		// 2.0: 30 s blocks of play for Compare
+		{
+			byBlock := map[int][]float64{}
+			for _, f := range play {
+				if f.q <= 0 || f.ms >= stopMs {
+					continue
+				}
+				b := int(tsec(f.q) / 30)
+				byBlock[b] = append(byBlock[b], f.ms)
+			}
+			keys := make([]int, 0, len(byBlock))
+			for k := range byBlock {
+				keys = append(keys, k)
+			}
+			sort.Ints(keys)
+			for _, k := range keys {
+				v := byBlock[k]
+				if len(v) < 200 {
+					continue
+				}
+				sort.Float64s(v)
+				res.Blocks = append(res.Blocks, BlockStat{MedianMs: round2(pctl(v, 50)), P99Ms: round2(pctl(v, 99)), Frames: len(v)})
+			}
+		}
+		res.KPI.StutterPct = round3(100 * float64(over) / float64(kept))
+		res.KPI.FrameSD = round2(math.Sqrt(sq / float64(kept)))
+		// 2.0: input lag from PresentMon (frames that had mouse / keyboard / pad input)
+		if d.pmc != nil {
+			var lag []float64
+			for _, f := range d.pmc.Frames {
+				if f.InputMs > 0 && f.InputMs < 1000 && (f.Qpc <= 0 || playing(f.Qpc)) {
+					lag = append(lag, f.InputMs)
+				}
+			}
+			if len(lag) >= 20 {
+				sort.Float64s(lag)
+				res.KPI.InputLagMs = round2(pctl(lag, 50))
+			}
+		}
 		if totalS > 0 {
 			res.KPI.DisplayedFps = float64(displayed) / (totalS + res.KPI.NotPlayingS)
 		}
@@ -687,6 +773,9 @@ func Run(dir string, env Env) (*Result, error) {
 		}
 		if s.CommitMB > res.KPI.CommitPeakMB {
 			res.KPI.CommitPeakMB, res.KPI.CommitLimitMB = math.Round(s.CommitMB), math.Round(s.CommitLimitMB)
+		}
+		if s.CpuTempC > res.KPI.CpuTempMax { // 2.0, HWiNFO / PawnIO
+			res.KPI.CpuTempMax = math.Round(s.CpuTempC)
 		}
 	}
 	if len(ramPlay) > 0 {
@@ -1286,6 +1375,14 @@ func Run(dir string, env Env) (*Result, error) {
 	}
 	sort.SliceStable(res.Causes, func(i, j int) bool { return res.Causes[i].Count > res.Causes[j].Count })
 
+	// ---- a crash / GPU hang at the end of the recording (2.0)
+	res.Crash = d.findCrash(res, t0)
+	// ---- F10 "I felt a stutter" presses (2.0)
+	res.Marks = d.feltMarks(dir, res, t0)
+	res.SysEvents = readEvents(dir)
+	res.Loads = loadTimes(dir, meta)
+	res.Snapshot = ReadSnapshot(dir)
+
 	// ---- engine table + shaders + per-archive load totals
 	type kacc struct {
 		n, main, o5, o16 int
@@ -1527,7 +1624,12 @@ func Run(dir string, env Env) (*Result, error) {
 	}
 	res.Advice = Advise(res)
 	b, _ := json.Marshal(res)
-	os.WriteFile(filepath.Join(dir, FileAnalysis), b, 0o644)
+	// written beside and then swapped in, so a report opened meanwhile never reads half a file
+	tmp := filepath.Join(dir, FileAnalysis+".tmp")
+	if os.WriteFile(tmp, b, 0o644) == nil && os.Rename(tmp, filepath.Join(dir, FileAnalysis)) != nil {
+		os.Remove(tmp)
+		os.WriteFile(filepath.Join(dir, FileAnalysis), b, 0o644)
+	}
 	return res, nil
 }
 

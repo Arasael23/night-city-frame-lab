@@ -11,23 +11,23 @@ import (
 
 // Meta is session.json, written by the capture side.
 type Meta struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Build     string    `json:"build"`
-	Game      string    `json:"game"`
-	Created   time.Time `json:"created"`
-	QpcFreq   int64     `json:"qpc_freq"`
-	AnchorQpc int64     `json:"anchor_qpc"`  // QPC and Unix ms read together by Frame Lab
-	AnchorMs  float64   `json:"anchor_unix_ms"`
-	SpikeMs   float64   `json:"spike_ms"`
-	Layers    LayerInfo `json:"layers"`
-	Notes     []string  `json:"notes,omitempty"`
-	GPU       string    `json:"gpu,omitempty"`
-	GpuVendor string    `json:"gpu_vendor,omitempty"` // "nvidia", "amd", "intel" (1.1+; empty = NVIDIA in older sessions)
-	GpuSource string    `json:"gpu_source,omitempty"` // where the card's readings came from
-	GpuReads  []string  `json:"gpu_reads,omitempty"`  // which readings the card's driver gave
-	Experiments []string `json:"experiments,omitempty"` // Windows settings from the Experiments tab that were on
-	Finished  bool      `json:"finished"`
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Build       string    `json:"build"`
+	Game        string    `json:"game"`
+	Created     time.Time `json:"created"`
+	QpcFreq     int64     `json:"qpc_freq"`
+	AnchorQpc   int64     `json:"anchor_qpc"` // QPC and Unix ms read together by Frame Lab
+	AnchorMs    float64   `json:"anchor_unix_ms"`
+	SpikeMs     float64   `json:"spike_ms"`
+	Layers      LayerInfo `json:"layers"`
+	Notes       []string  `json:"notes,omitempty"`
+	GPU         string    `json:"gpu,omitempty"`
+	GpuVendor   string    `json:"gpu_vendor,omitempty"`  // "nvidia", "amd", "intel" (1.1+; empty = NVIDIA in older sessions)
+	GpuSource   string    `json:"gpu_source,omitempty"`  // where the card's readings came from
+	GpuReads    []string  `json:"gpu_reads,omitempty"`   // which readings the card's driver gave
+	Experiments []string  `json:"experiments,omitempty"` // Windows settings from the Experiments tab that were on
+	Finished    bool      `json:"finished"`
 }
 
 type LayerInfo struct {

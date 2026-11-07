@@ -23,23 +23,23 @@ const (
 )
 
 type winRow struct {
-	q      int64
-	kind   string
-	name   string
-	pid    uint32
-	n      int
-	sumUs  float64
-	maxUs  float64
-	bytes  float64
+	q     int64
+	kind  string
+	name  string
+	pid   uint32
+	n     int
+	sumUs float64
+	maxUs float64
+	bytes float64
 }
 
 type winStats struct {
-	Events      map[string]uint64 `json:"events"`
-	Rows        uint64            `json:"rows"`
-	EventsLost  uint32            `json:"events_lost"`
-	BuffersLost uint32            `json:"buffers_lost"`
-	Drivers     int               `json:"drivers_known"`
-	Error       string            `json:"error"`
+	Events       map[string]uint64 `json:"events"`
+	Rows         uint64            `json:"rows"`
+	EventsLost   uint32            `json:"events_lost"`
+	BuffersLost  uint32            `json:"buffers_lost"`
+	Drivers      int               `json:"drivers_known"`
+	Error        string            `json:"error"`
 	DriverTotals []struct {
 		Name    string  `json:"name"`
 		TotalUs float64 `json:"total_us"`
@@ -52,26 +52,26 @@ type winStats struct {
 
 // WinTop is one driver or process over the whole session (while playing).
 type WinTop struct {
-	Name     string  `json:"name"`
-	What     string  `json:"what,omitempty"` // plain words for a driver
-	MsPerS   float64 `json:"ms_per_s,omitempty"`
-	MaxMs    float64 `json:"max_ms,omitempty"`
-	Count    int     `json:"count,omitempty"`
-	MB       float64 `json:"mb,omitempty"`
-	Spikes   int     `json:"spikes,omitempty"` // stutters it was put down to
+	Name   string  `json:"name"`
+	What   string  `json:"what,omitempty"` // plain words for a driver
+	MsPerS float64 `json:"ms_per_s,omitempty"`
+	MaxMs  float64 `json:"max_ms,omitempty"`
+	Count  int     `json:"count,omitempty"`
+	MB     float64 `json:"mb,omitempty"`
+	Spikes int     `json:"spikes,omitempty"` // stutters it was put down to
 }
 
 type WinSummary struct {
-	Recorded   bool              `json:"recorded"`
-	Events     map[string]uint64 `json:"events,omitempty"`
-	EventsLost uint32            `json:"events_lost,omitempty"`
-	Error      string            `json:"error,omitempty"`
-	Drivers    []WinTop          `json:"drivers,omitempty"`
-	Paging     []WinTop          `json:"paging,omitempty"`
-	Disk       []WinTop          `json:"disk,omitempty"`
-	DriverSpk  int               `json:"driver_spikes"`
-	PagingSpk  int               `json:"paging_spikes"`
-	Unexplained int              `json:"unexplained_left"`
+	Recorded    bool              `json:"recorded"`
+	Events      map[string]uint64 `json:"events,omitempty"`
+	EventsLost  uint32            `json:"events_lost,omitempty"`
+	Error       string            `json:"error,omitempty"`
+	Drivers     []WinTop          `json:"drivers,omitempty"`
+	Paging      []WinTop          `json:"paging,omitempty"`
+	Disk        []WinTop          `json:"disk,omitempty"`
+	DriverSpk   int               `json:"driver_spikes"`
+	PagingSpk   int               `json:"paging_spikes"`
+	Unexplained int               `json:"unexplained_left"`
 }
 
 // WinItem: what Windows was doing during one spike.
@@ -137,9 +137,9 @@ func readWinRows(dir string) ([]winRow, error) {
 }
 
 type winLayer struct {
-	rows    []winRow
-	stats   *winStats
-	bucket  int64
+	rows   []winRow
+	stats  *winStats
+	bucket int64
 }
 
 func loadWinLayer(dir string, freq float64) *winLayer {

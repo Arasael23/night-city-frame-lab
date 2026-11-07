@@ -10,7 +10,7 @@ import (
 // Advice: what the numbers of one session suggest trying, in plain words. Worked out from the
 // report itself (no guessing about the PC), so every line points at something that was measured.
 type Advice struct {
-	Level  string   `json:"level"` // "fix" (caused stutters), "try" (worth a test), "info", "good"
+	Level  string   `json:"level"` // "crash", "hw" (needs a look), "fix" (caused stutters), "try" (worth a test), "info", "good"
 	Title  string   `json:"title"`
 	Detail string   `json:"detail"`
 	Items  []string `json:"items,omitempty"`
@@ -61,6 +61,121 @@ func Advise(r *Result) []Advice {
 		return
 	}
 	gb := func(mb float64) string { return fmt.Sprintf("%.1f GB", mb/1024) }
+
+	// ---- the session ended in a crash (2.0)
+	if c := r.Crash; c != nil {
+		title := "The game crashed"
+		if c.Hung {
+			title = fmt.Sprintf("The game crashed: the graphics card hung at %s", c.Clock)
+		} else if c.Clock != "" {
+			title = fmt.Sprintf("The game crashed at %s", c.Clock)
+		}
+		det := ""
+		if c.Hung {
+			det = fmt.Sprintf("The game stopped sending frames and the card stayed busy at low power for %.0f s: it had stopped responding. Windows then reset it and the game closed. ", c.HangS)
+		}
+		if c.Summary != "" {
+			det += "The crash report says: " + c.Summary
+		} else if c.Report == "" {
+			det += "No Advanced Crash Reporter report was found for this time (that mod writes one with what the card was drawing)."
+		}
+		var items []string
+		if c.Error != "" {
+			items = append(items, "Error: "+c.Error)
+		}
+		if c.Device != "" {
+			items = append(items, "Card state: "+c.Device)
+		}
+		if c.Pass != "" {
+			items = append(items, "Drawing: "+c.Pass)
+		}
+		if c.Shader != "" {
+			items = append(items, "Shader: "+c.Shader)
+		}
+		if c.Place != "" {
+			items = append(items, "Place in the world: "+c.Place)
+		}
+		if c.Report != "" {
+			items = append(items, "Report: "+c.Report+" (AdvancedCrashReporter\\reports in the game folder)")
+		}
+		add("crash", title, det, items...)
+	}
+
+	// ---- Windows System log (2.0)
+	if len(r.SysEvents) > 0 {
+		var drv, whea, power []string
+		for _, e := range r.SysEvents {
+			line := e.Time.Format("15:04:05") + "  " + e.Source + " " + e.ID
+			if e.Text != "" {
+				t := e.Text
+				if len(t) > 160 {
+					t = t[:160] + "..."
+				}
+				line += ": " + t
+			}
+			switch {
+			case strings.Contains(e.Source, "WHEA"):
+				whea = append(whea, line)
+			case e.ID == "41":
+				power = append(power, line)
+			default:
+				drv = append(drv, line)
+			}
+		}
+		if len(whea) > 0 {
+			add("hw", fmt.Sprintf("Windows logged %d hardware error%s during the session (WHEA)", len(whea), plural(len(whea))),
+				"WHEA errors come from the hardware itself: the CPU, RAM, the PCIe link or the graphics card. Corrected ones are harmless now and then; many of them, or with crashes, point at an overclock / undervolt, EXPO / XMP memory settings or a loose card. Test without the overclock first.", whea...)
+		}
+		if len(drv) > 0 {
+			add("crash", "Windows reset the graphics driver", "Display 4101 means the driver stopped responding and Windows restarted it (a TDR). The game usually crashes with it.", drv...)
+		}
+		if len(power) > 0 {
+			add("crash", "The PC restarted without shutting down (Kernel-Power 41)", "A full system crash or power loss. With a game running that is usually the power supply, the graphics card's power connectors, or an unstable overclock.", power...)
+		}
+	}
+
+	// ---- CPU temperature (2.0, when HWiNFO or PawnIO gave a reading)
+	if t := r.KPI.CpuTempMax; t >= 95 {
+		add("hw", fmt.Sprintf("The CPU reached %.0f °C", t),
+			"That is at or near where the CPU slows itself down to protect itself, which shows up as uneven frame times. Check the cooler's mounting and paste, the fan curve, and case airflow; an undervolt (Curve Optimizer on Ryzen) helps too.")
+	} else if t >= 88 {
+		add("try", fmt.Sprintf("The CPU ran hot: %.0f °C at the most", t),
+			"Not throttling yet, but close. Worth checking the cooler and fan curve before a long session in summer.")
+	}
+
+	// ---- load times (2.0)
+	if l := r.Loads; l != nil {
+		var items []string
+		if l.StartToMenuS > 0 {
+			items = append(items, fmt.Sprintf("Game start to the main menu: %.0f s", l.StartToMenuS))
+		}
+		if l.ScriptsS > 0 {
+			items = append(items, fmt.Sprintf("Loading the scripts (REDscript): %.1f s", l.ScriptsS))
+		}
+		if l.FirstLoadS > 0 {
+			items = append(items, fmt.Sprintf("Loading the save: %.0f s", l.FirstLoadS))
+		}
+		if n := len(l.Screens); n > 0 {
+			longest := 0.0
+			for _, v := range l.Screens {
+				longest = math.Max(longest, v)
+			}
+			items = append(items, fmt.Sprintf("%d loading screen%s, longest %.0f s", n, plural(n), longest))
+		}
+		if len(items) > 0 {
+			add("info", "Load times", "From the session markers and RED4ext's log. A slow save load usually comes from many mods, a slow drive or little free RAM.", items...)
+		}
+	}
+
+	// ---- F10: "I felt a stutter" (2.0)
+	if len(r.Marks) > 0 {
+		var items []string
+		for _, m := range r.Marks {
+			items = append(items, m.Clock+": "+m.Cause)
+		}
+		add("info", fmt.Sprintf("You pressed F10 %d time%s (\"I felt a stutter\")", len(r.Marks), plural(len(r.Marks))),
+			"What happened in the 2 seconds before each press. The marks are the amber lines on the chart.", items...)
+	}
 
 	// ---- screen resets (the game re-applying full screen / rebuilding its screen buffers)
 	var hurt []ResetMark // resets that took memory or started crawling frames
@@ -236,7 +351,7 @@ func Advise(r *Result) []Advice {
 			items = append(items, strings.Join(shared, ", ")+": hooked into the game (overlay / desktop), so Windows counts the game's memory for them too; their real share is in the total")
 		}
 		detail := "Everything else on the card (programs, Windows, the driver) comes out of the same memory the game uses, so the game gets that much less before it has to spill into system RAM. " +
-			"Programs that don't need "+cardName(r.Meta)+" (browsers, Discord, launchers) can run on the processor's integrated graphics instead: " +
+			"Programs that don't need " + cardName(r.Meta) + " (browsers, Discord, launchers) can run on the processor's integrated graphics instead: " +
 			"VRAM tab, \"Programs on the graphics card\" (it changes the same Windows setting as Settings > Display > Graphics, with an exact undo), or close them before playing."
 		if ga.MovableTypMB < 150 {
 			detail = "Most of it is Windows itself or programs that belong on " + cardName(r.Meta) + ", so moving programs would free little here."
@@ -260,7 +375,17 @@ func Advise(r *Result) []Advice {
 		}
 		return false
 	})
-	if unN > 0 && dpc >= 5 {
+	// the Windows event recorder times every driver run; when none was long, the sampled DPC share
+	// (2 s averages) doesn't make drivers the cause
+	etwClean := false
+	if w := r.Windows; w != nil && w.Recorded && len(w.Drivers) > 0 {
+		longest := 0.0
+		for _, x := range w.Drivers {
+			longest = math.Max(longest, x.MaxMs)
+		}
+		etwClean = longest < 5
+	}
+	if unN > 0 && dpc >= 5 && !etwClean {
 		add("fix", fmt.Sprintf("Drivers held the CPU during %d long freeze%s (worst %.0f ms): up to %.0f%% of the CPU in driver interrupts", unN, plural(unN), unWorst, dpc),
 			"Driver interrupt time (DPC) that high stalls everything. Usual suspects: network (Wi-Fi especially), audio, USB devices, RGB/monitoring tools. LatencyMon names the driver; updating or disabling it for a test session tells you.")
 	} else if unN > 0 && shared >= 300 {
@@ -315,6 +440,14 @@ func Advise(r *Result) []Advice {
 			level, title := "good", fmt.Sprintf("Drivers and paging: no stutter from them (longest single driver run %.1f ms)", longest)
 			if longest >= 2 {
 				level = "info"
+			}
+			if longest >= 50 {
+				// a run that long is a freeze of its own; at the end of a crashed session it is the hang
+				level = "try"
+				title = fmt.Sprintf("A driver ran for %.0f ms in one go, outside the stutters Frame Lab lists", longest)
+				if r.Crash != nil && r.Crash.Hung {
+					title = fmt.Sprintf("A driver ran for %.0f ms in one go: the graphics driver when the card hung", longest)
+				}
 			}
 			what := ""
 			if d.What != "" {
@@ -440,7 +573,7 @@ func Advise(r *Result) []Advice {
 		add("good", fmt.Sprintf("Few stutters: %d in %.0f min of play", k.Spikes, mins), "")
 	}
 
-	order := map[string]int{"fix": 0, "try": 1, "info": 2, "good": 3}
+	order := map[string]int{"crash": -2, "hw": -1, "fix": 0, "try": 1, "info": 2, "good": 3}
 	sort.SliceStable(out, func(i, j int) bool { return order[out[i].Level] < order[out[j].Level] })
 	return out
 }
