@@ -20,6 +20,7 @@ type Frame struct {
 	DisplayMs float64 // how long it stayed on screen (NaN when not displayed)
 	Generated bool    // made by frame generation (DLSS FG etc.), not the game
 	Dropped   bool
+	InputMs   float64 // input-to-photon latency of this frame (-1 = none: no input that frame or no column)
 }
 
 type Capture struct {
@@ -82,6 +83,7 @@ func Parse(r io.Reader, process string) (*Capture, error) {
 	cDisp := col("MsBetweenDisplayChange", "DisplayedTime")
 	cType := col("FrameType")
 	cDrop := col("Dropped")
+	cInput := col("MsAllInputToPhotonLatency", "MsClickToPhotonLatency")
 
 	type sc struct{ frames []Frame }
 	bySwap := map[string]*sc{}
@@ -119,6 +121,10 @@ func Parse(r io.Reader, process string) (*Capture, error) {
 		}
 		t := strings.TrimSpace(get(rec, cType))
 		fr.Generated = t != "" && !strings.EqualFold(t, "Application") && !strings.EqualFold(t, "NotSet")
+		fr.InputMs = -1
+		if v, ok := num(get(rec, cInput)); ok && v > 0 {
+			fr.InputMs = v
+		}
 		d := strings.TrimSpace(get(rec, cDrop))
 		fr.Dropped = d == "1" || strings.EqualFold(d, "true")
 		key := get(rec, cSwap)
