@@ -48,9 +48,26 @@ func (s *Server) scanVram(i int) error {
 			o.Library.AddManifest(filepath.Join(s.Paths.Data, "library_manifest.json"))
 		}
 		o.Loaded, o.Session = s.loadedInLastSession(b.Path)
+		vortex := modmap.VortexSources(b.Path)
+		o.Nexus = func(rel string) string {
+			if l := o.Library; l != nil {
+				if _, zip := l.Find("archive:" + strings.ToLower(filepath.Base(rel))); zip != "" {
+					if id := modmap.NexusID(zip); id != "" {
+						return id
+					}
+				}
+			}
+			return modmap.NexusID(vortex[strings.ToLower(rel)])
+		}
 		r := vram.Scan(o)
 		state := ""
 		p := s.vramPath(b.Name)
+		if bs, err := os.ReadFile(p); err == nil {
+			var prev vram.Report
+			if json.Unmarshal(bs, &prev) == nil && prev.Sigs != nil {
+				r.Changes = vram.Diff(&prev, r)
+			}
+		}
 		os.MkdirAll(filepath.Dir(p), 0o755)
 		if bs, err := json.Marshal(r); err != nil {
 			state = "error: " + err.Error()

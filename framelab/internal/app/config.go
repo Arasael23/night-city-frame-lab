@@ -9,10 +9,9 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
-
 )
 
-const Version = "1.1.0"
+const Version = "2.0.0"
 
 type BuildCfg struct {
 	Name string `json:"name"`

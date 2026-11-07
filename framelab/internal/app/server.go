@@ -38,8 +38,10 @@ func NewServer(p Paths, ui fs.FS) *Server {
 	rand.Read(b)
 	s := &Server{Paths: p, UI: ui, Token: hex.EncodeToString(b)}
 	platform.SetDataDir(p.Data)
+	platform.PawnIOModules = filepath.Join(p.Components, "PawnIO")
 	s.Settings = LoadSettings(p)
 	s.Ctl = NewController(p, s.Settings)
+	go pinCoresLoop(p.Data)
 	// 1.2.1: build the file-name list by itself the first time (reports show paths instead of numbers)
 	if cfg := s.Settings.Get(); !modmap.NamesFile(filepath.Join(p.Data, "names.txt.gz")).Exists() &&
 		fileExists(filepath.Join(cfg.WolvenKit, "WolvenKit.Common.dll")) {
@@ -199,7 +201,9 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"moved": moved})
 	case path == "experiments":
 		game := s.buildPath(int(num("build")))
-		writeJSON(w, map[string]any{"list": experimentStates(s.Paths.Data, game), "game": game})
+		nv, nvErr := nvProfile()
+		writeJSON(w, map[string]any{"list": experimentStates(s.Paths.Data, game), "game": game, "groups": ExpGroups,
+			"nvprofile": nv, "nverror": nvErr, "cpu": platform.CPU()})
 	case path == "experiments/set" && r.Method == http.MethodPost:
 		on, _ := body["on"].(bool)
 		if err := setExperiment(s.Paths.Data, s.buildPath(int(num("build"))), str("id"), on); err != nil {
@@ -214,6 +218,35 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]string{"message": msg})
+	case path == "checks" && r.Method == http.MethodPost:
+		fresh, _ := body["fresh"].(bool)
+		rep, err := s.checks(int(num("build")), fresh)
+		if err != nil {
+			writeErr(w, 400, err)
+			return
+		}
+		writeJSON(w, map[string]any{"report": rep, "undo": undoList(s.Paths.Data)})
+	case path == "checks/act" && r.Method == http.MethodPost:
+		msg, err := s.checkAction(int(num("build")), str("id"))
+		checksForget()
+		if err != nil {
+			writeErr(w, 422, err)
+			return
+		}
+		writeJSON(w, map[string]string{"message": msg})
+	case path == "undo":
+		writeJSON(w, undoList(s.Paths.Data))
+	case path == "undo/everything" && r.Method == http.MethodPost:
+		n, errs := undoEverything(s.Paths.Data)
+		writeJSON(w, map[string]any{"undone": n, "errors": errs})
+	case path == "undo/one" && r.Method == http.MethodPost:
+		err := undoOne(s.Paths.Data, str("id"))
+		checksForget()
+		if err != nil {
+			writeErr(w, 422, err)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
 	case path == "open" && r.Method == http.MethodPost:
 		target := ""
 		switch str("what") {
@@ -226,6 +259,16 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 			if i := int(num("build")); i >= 0 && i < len(cfg.Builds) {
 				target = filepath.Join(cfg.Builds[i].Path, "red4ext", "plugins", "HitchRecorder")
 			}
+		}
+		if str("what") == "nexus" {
+			// a Nexus mod page: the ID only, digits, so nothing else can be opened this way
+			id := str("id")
+			ok := id != "" && len(id) <= 7 && strings.Trim(id, "0123456789") == ""
+			if ok {
+				platform.OpenURL("https://www.nexusmods.com/cyberpunk2077/mods/" + id)
+			}
+			writeJSON(w, map[string]bool{"ok": ok})
+			return
 		}
 		if target != "" {
 			platform.OpenFolder(target)
@@ -250,18 +293,13 @@ func (s *Server) sessionAPI(w http.ResponseWriter, r *http.Request, rest string,
 	}
 	switch action {
 	case "":
-		p := filepath.Join(dir, analysis.FileAnalysis)
-		if b, err := os.ReadFile(p); err == nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write(b)
-			return
-		}
-		res, err := s.Ctl.Analyse(id)
+		b, err := s.Ctl.CurrentAnalysis(id)
 		if err != nil {
 			writeErr(w, 422, err)
 			return
 		}
-		writeJSON(w, res)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(b)
 	case "analyse":
 		res, err := s.Ctl.Analyse(id)
 		if err != nil {
@@ -315,18 +353,18 @@ func (s *Server) sessionAPI(w http.ResponseWriter, r *http.Request, rest string,
 // ---------------------------------------------------------------- state for the window
 
 type stateOut struct {
-	Version    string          `json:"version"`
-	Admin      bool            `json:"admin"`
-	GPU        string          `json:"gpu"`
+	Version    string           `json:"version"`
+	Admin      bool             `json:"admin"`
+	GPU        string           `json:"gpu"`
 	GpuInfo    platform.GpuInfo `json:"gpu_info"`
-	Config     Config          `json:"config"`
-	Builds     []BuildState    `json:"builds"`
-	Components map[string]any  `json:"components"`
-	Game       map[string]any  `json:"game"`
-	Live       map[string]any  `json:"live"`
-	Capture    CaptureStatus   `json:"capture"`
-	Names      string          `json:"names"`
-	Time       string          `json:"time"`
+	Config     Config           `json:"config"`
+	Builds     []BuildState     `json:"builds"`
+	Components map[string]any   `json:"components"`
+	Game       map[string]any   `json:"game"`
+	Live       map[string]any   `json:"live"`
+	Capture    CaptureStatus    `json:"capture"`
+	Names      string           `json:"names"`
+	Time       string           `json:"time"`
 }
 
 var (
@@ -453,14 +491,9 @@ func (s *Server) buildNames() {
 
 // exportReport writes one self-contained HTML file (the report view + the session's data) into the session folder.
 func (s *Server) exportReport(dir string) (string, error) {
-	ana, err := os.ReadFile(filepath.Join(dir, analysis.FileAnalysis))
+	ana, err := s.Ctl.CurrentAnalysis(filepath.Base(dir))
 	if err != nil {
-		if _, err := s.Ctl.Analyse(filepath.Base(dir)); err != nil {
-			return "", err
-		}
-		if ana, err = os.ReadFile(filepath.Join(dir, analysis.FileAnalysis)); err != nil {
-			return "", err
-		}
+		return "", err
 	}
 	read := func(n string) string { b, _ := fs.ReadFile(s.UI, n); return string(b) }
 	html := read("index.html")

@@ -22,13 +22,13 @@ import (
 
 // Capture states, as shown in the window.
 const (
-	StIdle      = "idle"       // nothing set up
-	StArming    = "arming"     // putting the recorders into the game
-	StWaiting   = "waiting"    // session ready, waiting for the game to start
-	StRunning   = "running"    // (not used by sessions any more: the whole game run is recorded)
-	StRecording = "recording"  // game running: everything recording
-	StFinishing = "finishing"  // game closed: collecting, restoring, analysing
-	StDone      = "done"       // finished; SessionID holds the result
+	StIdle      = "idle"      // nothing set up
+	StArming    = "arming"    // putting the recorders into the game
+	StWaiting   = "waiting"   // session ready, waiting for the game to start
+	StRunning   = "running"   // (not used by sessions any more: the whole game run is recorded)
+	StRecording = "recording" // game running: everything recording
+	StFinishing = "finishing" // game closed: collecting, restoring, analysing
+	StDone      = "done"      // finished; SessionID holds the result
 	StError     = "error"
 )
 
@@ -39,16 +39,16 @@ type Step struct {
 }
 
 type CaptureStatus struct {
-	State     string `json:"state"`
-	Title     string `json:"title"`
-	Build     string `json:"build"`
-	SessionID string `json:"session_id"`
-	Steps     []Step `json:"steps"`
-	Error     string `json:"error,omitempty"`
-	Started   string `json:"started,omitempty"`
-	Recording float64 `json:"recording_s"`
-	Focus     bool    `json:"focus"`   // F11 part marked right now
-	FocusS    float64 `json:"focus_s"` // seconds marked with F11 so far
+	State     string          `json:"state"`
+	Title     string          `json:"title"`
+	Build     string          `json:"build"`
+	SessionID string          `json:"session_id"`
+	Steps     []Step          `json:"steps"`
+	Error     string          `json:"error,omitempty"`
+	Started   string          `json:"started,omitempty"`
+	Recording float64         `json:"recording_s"`
+	Focus     bool            `json:"focus"`   // F11 part marked right now
+	FocusS    float64         `json:"focus_s"` // seconds marked with F11 so far
 	Layers    map[string]bool `json:"layers"`
 }
 
@@ -57,10 +57,11 @@ type armedFile struct {
 	Session string    `json:"session"`
 	Game    string    `json:"game"`
 	Build   string    `json:"build"`
-	Scripts bool      `json:"scripts"` // REDscript + CET time per mod switched on in HitchRecorder
-	CET     bool      `json:"cet"`     // CET is in the build
-	Hitch   bool      `json:"hitch"`   // HitchRecorder put in for this session
-	Markers bool      `json:"markers"` // FrameLab.Markers.reds put in for this session
+	Scripts bool      `json:"scripts"`         // REDscript + CET time per mod switched on in HitchRecorder
+	CET     bool      `json:"cet"`             // CET is in the build
+	Hitch   bool      `json:"hitch"`           // HitchRecorder put in for this session
+	Markers bool      `json:"markers"`         // FrameLab.Markers.reds put in for this session
+	Quiet   []string  `json:"quiet,omitempty"` // services the quiet session stopped (started again at the end)
 	Time    time.Time `json:"time"`
 }
 
@@ -83,6 +84,8 @@ type Controller struct {
 	recTotal  time.Duration
 	focusAt   time.Time
 	focusTot  time.Duration
+	feltStop  chan struct{} // F10 watcher (2.0)
+	feltN     int
 	analysing map[string]bool
 	logMu     sync.Mutex
 }
@@ -224,6 +227,7 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 	gi := platform.GPU()
 	meta.GPU, meta.GpuVendor, meta.GpuSource, meta.GpuReads = gi.Name, gi.Vendor, gi.Source, gi.Reads
 	analysis.WriteMeta(dir, meta)
+	go writeSnapshot(dir, b.Path, gi.Name) // 2.0: for Compare
 
 	go func() {
 		released := false
@@ -267,6 +271,14 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 				c.logf("ok", "Standby memory cleared (Experiments).")
 			}
 		}
+		if quietAuto(c.paths.Data) {
+			a.Quiet = platform.QuietStart()
+			if len(a.Quiet) > 0 {
+				c.logf("ok", "Quiet session: %s stopped until the session ends (Experiments).", strings.Join(a.Quiet, ", "))
+			} else {
+				c.logf("info", "Quiet session: Windows Search, Windows Update and SysMain weren't running.")
+			}
+		}
 		// written now, so a crash before the game starts still gets everything taken out again
 		if ab, e := json.MarshalIndent(a, "", " "); e == nil {
 			os.WriteFile(c.armedPath(), ab, 0o644)
@@ -287,7 +299,7 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 		c.st.State = StWaiting
 		c.st.Layers["redscript"], c.st.Layers["cet"] = a.Hitch && a.Scripts, a.Hitch && a.Scripts && a.CET
 		c.st.Layers["hitch"] = a.Hitch
-		c.step("info", "Ready. Start the game and play: everything records by itself until you quit. Press F11 at a spot that stutters to mark it (script time per mod is measured only in the marked parts), F11 again to end the mark. Quit the game when done.")
+		c.step("info", "Ready. Start the game and play: everything records by itself until you quit. Press F11 at a spot that stutters to mark it (script time per mod is measured only in the marked parts), F11 again to end the mark. Press F10 whenever you feel a stutter. Quit the game when done.")
 		c.cancel = make(chan struct{})
 		cancel := c.cancel
 		c.busy = false // set-up done: Cancel works while waiting for the game (1.0 stayed busy here)
@@ -353,6 +365,9 @@ func (c *Controller) onGameStart(a *armedFile, g platform.GameProc) {
 	c.st.State = StRecording
 	c.recStart = time.Now()
 	c.step("ok", fmt.Sprintf("Game started (pid %d): recording.", g.Pid))
+	c.feltStop = make(chan struct{})
+	c.feltN = 0
+	go c.feltLoop(a.Session, c.feltStop)
 	c.mu.Unlock()
 
 	if s, err := platform.StartSampler(g.Pid, filepath.Join(a.Session, analysis.FileSamples)); err == nil {
@@ -474,7 +489,12 @@ func (c *Controller) onGameExit(a *armedFile) {
 		c.st.Focus = false
 	}
 	c.st.State = StFinishing
+	if c.feltStop != nil {
+		close(c.feltStop)
+		c.feltStop = nil
+	}
 	c.step("info", "Game closed. Collecting everything ...")
+	go writeSysEvents(a.Session)
 	s, pmCmd, bin, we := c.sampler, c.pmCmd, c.hitchBin, c.winev
 	c.sampler, c.pmCmd, c.winev = nil, nil, nil
 	c.mu.Unlock()
@@ -570,6 +590,11 @@ func (c *Controller) finish(a *armedFile, hitchBin string) {
 // restore takes HitchRecorder and the markers out of the build again and forgets the arm.
 func (c *Controller) restore(a *armedFile) {
 	ok := true
+	if len(a.Quiet) > 0 {
+		platform.QuietEnd(a.Quiet)
+		c.logf("ok", "Quiet session over: %s started again.", strings.Join(a.Quiet, ", "))
+		a.Quiet = nil
+	}
 	if a.Hitch || a.Markers || SessionPartsLeft(a.Game) {
 		if err := RemoveSessionParts(a.Game); err != nil {
 			ok = false
@@ -716,12 +741,69 @@ func (c *Controller) SessionDir(id string) (string, error) {
 	return dir, nil
 }
 
+// one analysis at a time per session folder (the report, Compare and the export can all ask)
+var anaLocks sync.Map
+
+func sessionLock(dir string) *sync.Mutex {
+	l, _ := anaLocks.LoadOrStore(dir, &sync.Mutex{})
+	return l.(*sync.Mutex)
+}
+
+// CurrentAnalysis: analysis.json when this version made it, else a fresh one; the old file when the
+// recording is gone and it can't be made again.
+func (c *Controller) CurrentAnalysis(id string) ([]byte, error) {
+	dir, err := c.SessionDir(id)
+	if err != nil {
+		return nil, err
+	}
+	l := sessionLock(dir)
+	l.Lock()
+	b, rerr := os.ReadFile(filepath.Join(dir, analysis.FileAnalysis))
+	l.Unlock()
+	if rerr == nil {
+		var v struct {
+			Version int                   `json:"version"`
+			Layers  []analysis.LayerState `json:"layers"`
+		}
+		json.Unmarshal(b, &v)
+		if v.Version >= analysis.ResultVersion || !recordingThere(dir, v.Layers) {
+			return b, nil
+		}
+	}
+	res, err := c.Analyse(id)
+	if err != nil {
+		if rerr == nil { // the recording is gone: the old analysis is still better than nothing
+			return b, nil
+		}
+		return nil, err
+	}
+	return json.Marshal(res)
+}
+
+// recordingThere: every recorded layer the old analysis used still has its file, so analysing it
+// again can't come out with less (someone may have deleted the big files to save space).
+func recordingThere(dir string, layers []analysis.LayerState) bool {
+	files := map[string]string{"Engine recorder": analysis.FileHitch, "Frames + GPU time (PresentMon)": analysis.FilePresentMon,
+		"GPU health + PC side": analysis.FileSamples, "Windows events": analysis.FileWindows}
+	for _, l := range layers {
+		if f, ok := files[l.Name]; ok && l.OK {
+			if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // Analyse (re)builds analysis.json for a session.
 func (c *Controller) Analyse(id string) (*analysis.Result, error) {
 	dir, err := c.SessionDir(id)
 	if err != nil {
 		return nil, err
 	}
+	l := sessionLock(dir)
+	l.Lock()
+	defer l.Unlock()
 	meta, _ := analysis.ReadMeta(dir)
 	cfg := c.settings.Get()
 	env := analysis.Env{Names: modmap.NamesFile(filepath.Join(c.paths.Data, "names.txt.gz"))}
@@ -798,4 +880,49 @@ func newestDir(dir, prefix string, after time.Time) string {
 		}
 	}
 	return best
+}
+
+// feltLoop: F10 = "I felt a stutter". Checked 25 times a second (a short tap is caught too); each
+// press goes to felt.txt as Unix ms and gets a short beep. Held down it counts once.
+func (c *Controller) feltLoop(session string, stop chan struct{}) {
+	const vkF10 = 0x79
+	platform.KeyHit(vkF10) // clear "pressed since the last call"
+	tick := time.NewTicker(40 * time.Millisecond)
+	defer tick.Stop()
+	down := false
+	for {
+		select {
+		case <-stop:
+			return
+		case <-tick.C:
+		}
+		hit := platform.KeyHit(vkF10)
+		if hit && !down {
+			at := float64(time.Now().UnixNano()) / 1e6
+			if f, err := os.OpenFile(filepath.Join(session, analysis.FileFelt), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+				fmt.Fprintf(f, "%.0f\n", at)
+				f.Close()
+			}
+			c.mu.Lock()
+			c.feltN++
+			n := c.feltN
+			c.step("ok", fmt.Sprintf("F10: stutter mark %d saved. The report shows what happened in the 2 seconds before it.", n))
+			c.mu.Unlock()
+			go platform.Beep(true)
+		}
+		down = hit
+	}
+}
+
+// writeSysEvents: display driver resets, hardware errors and unexpected restarts from Windows'
+// System log since the session started (events.json, read by the report).
+func writeSysEvents(session string) {
+	since := time.Now().Add(-2 * time.Hour)
+	if m, err := analysis.ReadMeta(session); err == nil && !m.Created.IsZero() {
+		since = m.Created.Add(-time.Minute)
+	}
+	ev := platform.SystemEvents(since)
+	if b, err := json.Marshal(ev); err == nil {
+		os.WriteFile(filepath.Join(session, analysis.FileEvents), b, 0o644)
+	}
 }

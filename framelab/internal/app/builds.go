@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
 )
 
 type HitchInfo struct {
@@ -94,7 +93,11 @@ func gameVersion(exe string) string {
 		sig := []byte{0xBD, 0x04, 0xEF, 0xFE}
 		if i := bytes.LastIndex(b, sig); i >= 0 && i+24 <= len(b) {
 			ms := binary.LittleEndian.Uint32(b[i+16:]) // dwProductVersionMS
+			ls := binary.LittleEndian.Uint32(b[i+20:]) // dwProductVersionLS
 			v = fmt.Sprintf("%d.%d", ms>>16, ms&0xFFFF)
+			if ls>>16 > 0 { // 2.3.1.0 is the game's 2.31
+				v += fmt.Sprint(ls >> 16)
+			}
 		}
 	}
 	verCacheMu.Lock()
