@@ -9,7 +9,7 @@
 #        ./build.sh package    -> also out/Night City Frame Lab <version>.zip (needs PresentMon, see BUILD.md)
 set -e
 cd "$(dirname "$0")"
-VERSION=1.1.0
+VERSION=2.0.0
 PM_FILE=PresentMon-2.6.0-x64.exe
 PM_SHA256=b2a706bc6ad475749e3b7e3409263aa1e6906d45bdcf993f6dbc0f660188f1af
 
@@ -47,7 +47,9 @@ fi
 echo "$PM_SHA256  $PM_FILE" | sha256sum -c -
 D="out/pkg/Night City Frame Lab"
 C="$D/components"
-mkdir -p "$C/HitchRecorder/red4ext/plugins/HitchRecorder" "$C/FrameLabMarkers" "$C/PresentMon" "$C/licences"
+echo "dae74615761b78bdf064dfb3e136252ddcc6fc727d88f14738d0e5800d427a91  release/pawnio/AMDFamily17.bin" | sha256sum -c -
+mkdir -p "$C/HitchRecorder/red4ext/plugins/HitchRecorder" "$C/FrameLabMarkers" "$C/PresentMon" "$C/PawnIO" "$C/licences"
+cp release/pawnio/AMDFamily17.bin "$C/PawnIO/"
 cp out/NightCityFrameLab.exe release/README.txt "$D/"
 cp "out/GPU check.exe" "$C/"
 cp out/HitchRecorder.dll hitchrecorder/HitchRecorder.ini hitchrecorder/README.txt "$C/HitchRecorder/red4ext/plugins/HitchRecorder/"
@@ -57,7 +59,7 @@ cp "$PM_FILE" "$C/PresentMon/"
 cp release/PresentMon-license.txt "$C/PresentMon/license.txt"
 cp release/THIRD_PARTY.txt "$C/"
 cp release/licences/* "$C/licences/"
-find out/pkg -exec touch -d "2026-11-02 00:00:00 UTC" {} +
+find out/pkg -exec touch -d "2026-11-07 00:00:00 UTC" {} +
 ( cd out/pkg && find "Night City Frame Lab" -type f | LC_ALL=C sort | TZ=UTC zip -X -D -q "../Night City Frame Lab $VERSION.zip" -@ )
 rm -rf out/pkg
 sha256sum "out/Night City Frame Lab $VERSION.zip"

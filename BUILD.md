@@ -1,4 +1,4 @@
-# Building Night City Frame Lab 1.1.0
+# Building Night City Frame Lab 2.0.0
 
 The release is cross-compiled on Linux. On Windows, use WSL with Ubuntu 24.04 and follow the same steps.
 
@@ -22,11 +22,12 @@ No network access is needed during the build: all Go dependencies are in `framel
 ./build.sh
 ```
 
-This produces `out/NightCityFrameLab.exe` and `out/HitchRecorder.dll` and prints their SHA-256:
+This produces `out/NightCityFrameLab.exe`, `out/GPU check.exe` and `out/HitchRecorder.dll` and prints their SHA-256:
 
 | File | SHA-256 |
 |---|---|
-| NightCityFrameLab.exe | `c764b3f8078b2479afd9adc7deb147756f4afad56442759d24ea3e1578e28d58` |
+| NightCityFrameLab.exe | `22a4bdaf092a3a36e7537f31a7a8def4090a46ff1989824304fc33d6667855ff` |
+| GPU check.exe | `a2fa3d8587385d07427f24a2962184ff5e93d19332f03e4b98fabfec36b4d4a8` |
 | HitchRecorder.dll | `a5b39c969bf2937c51ae1bd862423dfa201cea62ac7e5c33eec29bc451032588` |
 
 What `build.sh` runs:
@@ -50,14 +51,20 @@ x86_64-w64-mingw32-gcc -O2 -std=gnu11 -Wall -Wextra -Wno-unused-parameter -Wno-c
 The download also contains Intel PresentMon 2.6.0, the official release binary from
 https://github.com/GameTechDev/PresentMon/releases (version 2.6.0, file `PresentMon-2.6.0-x64.exe`,
 SHA-256 `b2a706bc6ad475749e3b7e3409263aa1e6906d45bdcf993f6dbc0f660188f1af`). Put that file next to
-`build.sh`, then:
+`build.sh`.
+
+It also contains one PawnIO module, `release/pawnio/AMDFamily17.bin` (in this repository), the unchanged
+signed build from https://github.com/namazso/PawnIO.Modules/releases/tag/0.2.11 (`release_0_2_11.zip`,
+SHA-256 `43608cb89bc84247fef1368a139013f7d043e17db6d6c8dfc9b46bf0905a81f4`; the module itself
+`dae74615761b78bdf064dfb3e136252ddcc6fc727d88f14738d0e5800d427a91`, LGPL-2.1). The PawnIO driver is not
+included: users install it themselves from pawnio.eu. Then:
 
 ```sh
 ./build.sh package
 ```
 
-`out/Night City Frame Lab 1.1.0.zip` then has SHA-256
-`5a1824c47845e4cd7044544dfadaf127190918e5237af1cf846eb7cb2839c0be` (file times are fixed so the zip is reproducible).
+`out/Night City Frame Lab 2.0.0.zip` then has SHA-256
+`360a04a4ad0e640de31060f14d339e2797315b2b2a6b694b75f9cc1f903f9208` (file times are fixed so the zip is reproducible).
 
 ## Third-party code
 

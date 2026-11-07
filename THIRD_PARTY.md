@@ -8,8 +8,10 @@
 | golang.org/x/sys (The Go Authors) | v0.30.0 | BSD-3-Clause | `framelab/vendor/golang.org/x/sys` |
 | uPlot (Leon Sorokin) | 1.6.32 | MIT | `framelab/ui/uPlot.*` |
 | Inter font (The Inter Project Authors) | 4.0, cut down to the characters the window uses | SIL Open Font License 1.1 (`framelab/ui/fonts/OFL.txt`) | `framelab/ui/fonts/`, embedded in the exe |
+| IBM Plex Mono font (IBM Corp.) | Regular and Medium, Latin (from Fontsource 5.1.0) | SIL Open Font License 1.1 (`framelab/ui/fonts/OFL-IBMPlexMono.txt`) | `framelab/ui/fonts/`, embedded in the exe |
 | MinHook (Tsuda Kageyu) | commit 8af6b4acae5a | BSD-2-Clause | `hitchrecorder/third_party/minhook` |
 | PresentMon (Intel) | 2.6.0 release binary | MIT | not in this repository; bundled in the download |
+| PawnIO module AMDFamily17 (namazso and contributors) | PawnIO.Modules 0.2.11, signed release build | LGPL-2.1 | `release/pawnio/AMDFamily17.bin`, unchanged; source at github.com/namazso/PawnIO.Modules |
 
 Ideas and data layouts used, with no code copied:
 - redscript-dap by jekky (MIT): the game binds each script function to its source file at load; HitchRecorder uses this to trace a function back to its .reds file.
