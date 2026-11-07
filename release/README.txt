@@ -1,4 +1,4 @@
-Night City Frame Lab 2.0.0
+Night City Frame Lab 2.0.1
 ==========================
 
 A stutter and performance recorder for Cyberpunk 2077 with mods. One window records the game with
@@ -6,7 +6,7 @@ every layer on the same clock, then explains each slow frame:
 
   - shader and ray tracing pipeline builds
   - world streaming, file loading and entity spawns
-  - REDscript mods and CET Lua mods (time per mod)
+  - REDscript mods and CET Lua mods (time per mod, in the parts you mark with F11)
   - VRAM full, or game memory spilled into system RAM
   - disk reads, system RAM running out, the page file
   - a Windows driver holding the CPU (interrupts / DPCs)
@@ -46,10 +46,10 @@ Install
 Record a session
   1. Capture tab: pick the build, name the session, press Start session (game closed).
   2. Start the game and play. Everything records by itself until you quit.
-  3. Optional: press F11 at a spot that stutters to mark it, F11 again ends the mark.
-     Script time per mod (REDscript and CET) is measured only inside the marked parts.
-     Press F10 whenever you feel a stutter: the report shows what happened in the 2 seconds
-     before each press (new in 2.0).
+  3. Press F11 where it stutters to start a mark, F11 again ends it. Script time per mod
+     (REDscript and CET) is measured only inside the marked parts, so this is how you find out
+     which mod costs what. Press F10 whenever you feel a stutter: the report shows what happened
+     in the 2 seconds before each press (new in 2.0).
   4. Quit the game.
   5. Frame Lab collects everything, takes the recorders out again and opens the report.
   Loading screens and the main menu are shaded on the timeline and left out of the numbers.
@@ -59,6 +59,13 @@ Record a session
   per second, a list of the spikes with what overlapped each one, script cost per mod, engine work,
   shader builds, and "What to try": advice worked out from that session's own numbers.
   Compare puts two sessions side by side. Export HTML report saves one as a single file.
+
+  2.0.1:
+  - Overlays and recorders that hook into the game (the NVIDIA overlay and the like) no longer
+    show the game's own graphics memory as theirs in "Everything else on the game's card".
+  - When the game kept part of its graphics memory in system RAM the whole session, the VRAM
+    item says so, instead of tying it to the freezes only.
+  - The Capture tab and this README put F11 and F10 up front.
 
   New in 2.0:
   - Checks tab: read-only checks of the PC and each build (display and frame limiters, injected
