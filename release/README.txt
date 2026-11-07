@@ -1,4 +1,4 @@
-Night City Frame Lab 1.1.0
+Night City Frame Lab 2.0.0
 ==========================
 
 A stutter and performance recorder for Cyberpunk 2077 with mods. One window records the game with
@@ -48,6 +48,8 @@ Record a session
   2. Start the game and play. Everything records by itself until you quit.
   3. Optional: press F11 at a spot that stutters to mark it, F11 again ends the mark.
      Script time per mod (REDscript and CET) is measured only inside the marked parts.
+     Press F10 whenever you feel a stutter: the report shows what happened in the 2 seconds
+     before each press (new in 2.0).
   4. Quit the game.
   5. Frame Lab collects everything, takes the recorders out again and opens the report.
   Loading screens and the main menu are shaded on the timeline and left out of the numbers.
@@ -57,6 +59,26 @@ Record a session
   per second, a list of the spikes with what overlapped each one, script cost per mod, engine work,
   shader builds, and "What to try": advice worked out from that session's own numbers.
   Compare puts two sessions side by side. Export HTML report saves one as a single file.
+
+  New in 2.0:
+  - Checks tab: read-only checks of the PC and each build (display and frame limiters, injected
+    DLLs, DLSS files, PCIe link, RAM speed, game drive, MSI mode, mod frameworks and debug logging
+    left on, old tweaks, memory integrity), with a fix and an Undo where one is safe.
+  - A session that ends in a crash says so first: whether the graphics card hung, what the
+    Advanced Crash Reporter report says (when that mod is installed) and Windows' own log entries
+    (display driver reset, hardware errors, unexpected restart).
+  - Stutter % (frames over 2.5x the average), how spread out the frame times are, input lag
+    (PresentMon), CPU temperature, load times (game start to the menu, script loading, save
+    loading, every loading screen).
+  - CPU temperature: read from HWiNFO while it runs with "Shared Memory Support" on, or on AMD
+    Ryzen through PawnIO, the signed driver LibreHardwareMonitor and Fan Control use. Frame Lab
+    never installs a driver: Checks > CPU temperature > Get PawnIO opens pawnio.eu, and you run
+    its installer yourself.
+  - Compare: what changed between the two sessions (game, driver and Windows versions, mods added,
+    removed or updated, game settings) and whether a difference is bigger than the normal
+    run-to-run noise.
+  - VRAM tab: what one mip level less on each mod's big textures would save (exact), and big
+    meshes without levels of detail.
 
 
 What it puts into the game folder, for one session only
@@ -110,7 +132,15 @@ Conflicts tab (no game needed)
     Codeware, ...), REDscript and every CET mod. A crash that a plugin logged shows up here too.
 
 
-VRAM tab (no game needed)
+VRAM tab (no game needed), two parts:
+  - Mods: Scan build adds up the textures and meshes each mod sends to the graphics card and
+    compares every mod file with the game file it replaces (new in 1.2), so you see what a mod
+    really adds on top of the game. A mod that swaps game meshes for ones of the same size holds
+    a lot of data but adds almost nothing. Also shows upscaled textures (3.5 times the game's file
+    or more), copies another mod overrides (never used), files identical to the game's own,
+    textures without mip levels (always loaded at full size), archives that are cut off, what
+    changed since the last scan, and with a session of that build how much the game really
+    loaded. Click a mod for its biggest and most upscaled files and its Nexus page.
   - Programs on the graphics card: every program that holds graphics memory right now, on which
     card, and the graphics setting Windows has for it. Programs that don't need the main card
     (browsers, Discord, launchers) can be moved to the processor's integrated graphics, one by one
@@ -118,9 +148,6 @@ VRAM tab (no game needed)
     Display > Graphics > Power saving and applies the next time that program starts. Undo puts
     back exactly what was there. The game, recorders (OBS, NVIDIA's apps) and Windows' own parts
     are never moved. Needs integrated graphics switched on; the tab says how if it isn't.
-  - Scan build: adds up the textures and meshes each mod sends to the graphics card, finds
-    textures without mip levels (always loaded at full size) and, with a session of that build,
-    how much of it the game really loaded.
 
 
 Experiments tab
@@ -128,11 +155,20 @@ Experiments tab
   undone exactly (what was there before is kept in data\experiments.json). Every session notes
   which were on, so two sessions in Compare show whether a setting helped on your PC. The risky
   ones are marked and need a second click. Leave them off unless a session points at them.
+  New in 2.0: Game Mode off, quiet session (Search, Update, SysMain paused), 3D V-Cache cores,
+  0.5 ms timer, CPU idle off, PCIe link power off, MSI mode, memory compression off, crowd
+  density, SMT, hybrid P-cores, NVIDIA power mode and DLSS latest model, DLSS indicator, a fixed
+  page file on the fastest drive, GPU interrupt core, newer DLSS files with an exact backup, and
+  Undo everything.
+  New in 1.2: multiplane overlay (MPO) off, Game Bar background recording off, keep the game on
+  the performance cores (Intel CPUs with two kinds of cores, beta), and two that are shown only:
+  hardware-accelerated GPU scheduling, and the NVIDIA driver profile for the game (frame cap,
+  V-sync, low latency, power mode and more), read from the driver and never changed.
 
 
 Folders
   Sessions\      one folder per session (raw data, markers, analysis.json, exported HTML report)
-  components\    HitchRecorder, FrameLabMarkers, PresentMon, GPU check, licences
+  components\    HitchRecorder, FrameLabMarkers, PresentMon, GPU check, the PawnIO module, licences
   data\          the file-name list, scan results, experiments and graphics settings changed, framelab.log
   FrameLab.settings.json   your settings (created when you save in the Settings tab)
 
@@ -154,8 +190,9 @@ If something goes wrong
 
 Credits
   PresentMon by Intel (MIT). uPlot by Leon Sorokin (MIT). go-webview2 by John Chadwick (MIT).
-  Inter font by The Inter Project Authors (SIL OFL 1.1).
+  Inter font by The Inter Project Authors, IBM Plex Mono font by IBM (both SIL OFL 1.1).
   golang.org/x/sys (BSD-3). HitchRecorder uses MinHook by Tsuda Kageyu (BSD-2).
+  PawnIO module AMDFamily17 by namazso and contributors (LGPL-2.1, unchanged signed build).
   Mapping script functions to their .reds files at load is an idea from jekky's redscript-dap (MIT);
   the CET part reads LuaJIT's data layout (LuaJIT and Cyber Engine Tweaks are MIT). Game function
   hashes come from ArchiveXL and RED4ext.SDK. Licences in components\licences and

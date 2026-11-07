@@ -7,6 +7,8 @@ uPlot 1.6.32 - Leon Sorokin, MIT licence (embedded in the exe).
 
 Inter 4.0 - The Inter Project Authors, SIL Open Font License 1.1 (cut down to the characters
 the window uses, embedded in the exe; licences\Inter-OFL.txt).
+IBM Plex Mono - IBM Corp., SIL Open Font License 1.1 (Regular and Medium, Latin, embedded in
+the exe; licences\IBM-Plex-Mono-OFL.txt).
 
 go-webview2 - John Chadwick, MIT licence; includes Microsoft's WebView2Loader (embedded in the exe).
 go-winloader - John Chadwick, ISC licence (used by go-webview2; licences\go-winloader.LICENSE.txt).
@@ -14,6 +16,11 @@ WebView2Loader - Microsoft, WebView2 SDK licence (licences\WebView2Loader.LICENS
 golang.org/x/sys - The Go Authors, BSD-3-Clause.
 
 MinHook - Tsuda Kageyu, BSD-2-Clause (inside HitchRecorder.dll; licence next to it).
+
+PawnIO module AMDFamily17.bin 0.2.11 - namazso and contributors, LGPL-2.1 (components\PawnIO,
+unchanged signed build from https://github.com/namazso/PawnIO.Modules/releases/tag/0.2.11, source
+in the same repository; licences\PawnIO.Modules-LGPL-2.1.txt). Used only when you have installed
+PawnIO yourself from pawnio.eu; Frame Lab does not include or install the PawnIO driver.
 
 HitchRecorder's script timing is original code. Ideas and data layouts it relies on:
   - redscript-dap by jekky (MIT): the game binds each script function to its source file at load,
