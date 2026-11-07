@@ -9,7 +9,7 @@
 #        ./build.sh package    -> also out/Night City Frame Lab <version>.zip (needs PresentMon, see BUILD.md)
 set -e
 cd "$(dirname "$0")"
-VERSION=2.0.0
+VERSION=2.0.1
 PM_FILE=PresentMon-2.6.0-x64.exe
 PM_SHA256=b2a706bc6ad475749e3b7e3409263aa1e6906d45bdcf993f6dbc0f660188f1af
 

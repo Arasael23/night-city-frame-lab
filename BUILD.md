@@ -1,4 +1,4 @@
-# Building Night City Frame Lab 2.0.0
+# Building Night City Frame Lab 2.0.1
 
 The release is cross-compiled on Linux. On Windows, use WSL with Ubuntu 24.04 and follow the same steps.
 
@@ -26,7 +26,7 @@ This produces `out/NightCityFrameLab.exe`, `out/GPU check.exe` and `out/HitchRec
 
 | File | SHA-256 |
 |---|---|
-| NightCityFrameLab.exe | `22a4bdaf092a3a36e7537f31a7a8def4090a46ff1989824304fc33d6667855ff` |
+| NightCityFrameLab.exe | `c98346ff84fa6849a425c0484f05d2b1583505e99a51a2bbf776c559a60602bf` |
 | GPU check.exe | `a2fa3d8587385d07427f24a2962184ff5e93d19332f03e4b98fabfec36b4d4a8` |
 | HitchRecorder.dll | `a5b39c969bf2937c51ae1bd862423dfa201cea62ac7e5c33eec29bc451032588` |
 
@@ -63,8 +63,8 @@ included: users install it themselves from pawnio.eu. Then:
 ./build.sh package
 ```
 
-`out/Night City Frame Lab 2.0.0.zip` then has SHA-256
-`360a04a4ad0e640de31060f14d339e2797315b2b2a6b694b75f9cc1f903f9208` (file times are fixed so the zip is reproducible).
+`out/Night City Frame Lab 2.0.1.zip` then has SHA-256
+`80f39b015dd5c26f76e049a3d7bf210dfd4a1ab1a0badbdc57176310ffa7dd8f` (file times are fixed so the zip is reproducible).
 
 ## Third-party code
 
