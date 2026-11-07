@@ -176,7 +176,7 @@ const STATE_TEXT = {
   arming: ['Setting up ...', 'Putting HitchRecorder and the markers into the game for this session.'],
   waiting: ['Ready: start the game', 'Everything records by itself from when the game starts until you quit.'],
   running: ['Recording', 'Play normally. Quit the game to finish.'],
-  recording: ['Recording', 'Play normally. F11 marks a spot that stutters (F11 again ends the mark). Quit the game to finish.'],
+  recording: ['Recording', 'Play normally. F11 where it stutters starts a mark, F11 again ends it. F10 when you feel a stutter. Quit the game to finish.'],
   finishing: ['Finishing ...', 'Collecting everything, taking the recorders out of the game, analysing.'],
   done: ['Done', 'The report is ready.'],
   error: ['Problem', ''],
@@ -198,7 +198,8 @@ function renderCapture() {
           <div id="cap-buttons" style="display:flex;gap:10px;margin-top:12px;align-items:center"></div>
           <ol class="howto" id="cap-howto">
             <li>Start session (game closed): Frame Lab puts its recorders into the game.</li><li>Start the game and play. Everything records by itself.</li>
-            <li>Optional: F11 at a spot that stutters marks it, F11 again ends the mark. Script time per mod (REDscript, CET) is measured only inside marks.</li><li>Quit the game.</li>
+            <li><b>F11</b> where it stutters starts a mark, F11 again ends it. Script time per mod (REDscript, CET) is measured only inside marks: that's how you find the mod behind a stutter.</li>
+            <li><b>F10</b> when you feel a stutter: the report shows what happened in the 2 seconds before.</li><li>Quit the game.</li>
             <li>Frame Lab collects, takes the recorders out again and opens the report.</li></ol>
           <div class="steps" id="cap-steps"></div>
         </div></div>
@@ -227,7 +228,7 @@ function renderCapture() {
   else if (armed) btn = `<button class="btn2" data-act="disarm" ${st.game.running ? 'disabled title="Quit the game: the session finishes and cleans up by itself"' : ''}>Cancel and remove</button>`;
   else if (c.state === 'error') btn = `<button class="btn2" data-act="disarm">Try removing again</button><button class="btn2" data-act="reset">Clear</button>`;
   else btn = `<button class="btn" data-act="arm" ${busy || st.game.running || !active || !active.exists ? 'disabled' : ''}>● Start session</button>
-      ${st.game.running ? '<span class="dim small">Close the game to start a session.</span>' : '<span class="dim small">F11 in game = mark a spot (optional)</span>'}`;
+      ${st.game.running ? '<span class="dim small">Close the game to start a session.</span>' : '<span class="dim small">In game: F11 = mark a part (script time per mod), F10 = "I felt a stutter"</span>'}`;
   const bEl = $('#cap-buttons');
   if (bEl.dataset.html !== btn) { bEl.innerHTML = btn; bEl.dataset.html = btn; }
   const stepNo = { idle: 0, arming: 0, waiting: 1, running: 1, recording: c.focus ? 2 : 1, finishing: 4, done: 5, error: -1 }[c.state];
