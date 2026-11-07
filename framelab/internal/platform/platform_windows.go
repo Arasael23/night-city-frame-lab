@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +32,7 @@ var (
 	procBeep             = kernel32.NewProc("Beep")
 	user32               = windows.NewLazySystemDLL("user32.dll")
 	procMessageBoxW      = user32.NewProc("MessageBoxW")
+	procGetAsyncKeyState = user32.NewProc("GetAsyncKeyState")
 )
 
 func QPC() int64 {
@@ -69,6 +71,13 @@ func HideWindow(cmd *exec.Cmd) {
 func OpenFolder(path string) {
 	cmd := exec.Command("explorer.exe", path)
 	cmd.Start()
+}
+
+// OpenURL opens a web page in the default browser.
+func OpenURL(url string) {
+	verb, _ := windows.UTF16PtrFromString("open")
+	u, _ := windows.UTF16PtrFromString(url)
+	windows.ShellExecute(0, verb, u, nil, nil, windows.SW_SHOWNORMAL)
 }
 
 // processes returns pid -> exe name.
@@ -383,6 +392,8 @@ func StartSampler(gamePid uint32, out string) (Sampler, error) {
 		defer w.Close()
 		runtime.LockOSThread()
 		g := mainSource()
+		ct := OpenCPUTemp(PawnIOModules) // 2.0: CPU temperature (HWiNFO / PawnIO), if either is there
+		defer ct.Close()
 		q := newPdh()
 		ncpu := float64(runtime.NumCPU())
 		gameCounters := false
@@ -472,6 +483,9 @@ func StartSampler(gamePid uint32, out string) (Sampler, error) {
 				}
 				if v, ok := q.value("commitlim"); ok {
 					smp.CommitLimitMB = v / 1048576
+				}
+				if v := ct.Read(); !math.IsNaN(v) {
+					smp.CpuTempC = v
 				}
 				for inst, v := range q.array("gpushared") {
 					if pidOf(inst) == gamePid {
@@ -599,4 +613,10 @@ func Oodle(oodleDll string) (func(src []byte, size int) ([]byte, error), error) 
 		}
 		return dst, nil
 	}, nil
+}
+
+// KeyHit: the key is down now or was pressed since the last call (any window in front).
+func KeyHit(vk int) bool {
+	r, _, _ := procGetAsyncKeyState.Call(uintptr(vk))
+	return r&0x8001 != 0
 }

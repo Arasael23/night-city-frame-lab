@@ -5,6 +5,7 @@ package platform
 import (
 	"encoding/binary"
 	"math"
+	"regexp"
 	"strings"
 	"unicode/utf16"
 )
@@ -81,6 +82,34 @@ func ParseHitchState(b []byte) *HitchState {
 var dataDir string
 
 func SetDataDir(d string) { dataDir = d }
+
+// CPUInfo: the processor and its kinds of cores (two kinds on Intel 12th to 14th gen and Core Ultra).
+type CPUInfo struct {
+	Name   string `json:"name"`
+	Cores  int    `json:"cores"`
+	PCores int    `json:"p_cores"`
+	ECores int    `json:"e_cores"`
+	Hybrid bool   `json:"hybrid"`
+}
+
+// cpuName: the registry's processor name without the trademark signs and the "8-Core Processor" tail.
+func cpuName(n string) string {
+	for _, x := range []string{"(R)", "(r)", "(TM)", "(tm)"} {
+		n = strings.ReplaceAll(n, x, "")
+	}
+	n = reCoreTail.ReplaceAllString(n, "")
+	return strings.Join(strings.Fields(n), " ")
+}
+
+var reCoreTail = regexp.MustCompile(`(?i)\s+(\d+|dual|quad|six|eight|twelve|sixteen)-core processor\s*$|\s+processor\s*$|\s+cpu\s*@.*$`)
+
+// NvSetting: one setting of the NVIDIA driver profile for the game, read only.
+type NvSetting struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+	From  string `json:"from"` // "game profile", "global" or "driver default"
+	Note  string `json:"note,omitempty"`
+}
 
 // GameProc is a running Cyberpunk2077.exe.
 type GameProc struct {
@@ -207,3 +236,6 @@ type InstallHint struct {
 	Store string `json:"store"` // "Steam", "GOG", "Epic" or "" (found another way)
 	Path  string `json:"path"`  // the game folder (the one with bin\x64)
 }
+
+// PawnIOModules: the folder with the PawnIO modules shipped with Frame Lab (components\\PawnIO), set at start.
+var PawnIOModules string

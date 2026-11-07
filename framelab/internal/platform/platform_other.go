@@ -26,6 +26,7 @@ func SingleInstance() bool          { return true }
 func MessageBox(title, text string) { println(title + ": " + text) }
 func HideWindow(cmd *exec.Cmd)      {}
 func OpenFolder(path string)        { println("open folder:", path) }
+func OpenURL(url string)            { println("open url:", url) }
 
 func FindGame() []GameProc {
 	if f := os.Getenv("FRAMELAB_FAKE_GAME_FILE"); f != "" {
@@ -162,3 +163,21 @@ func Beep(on bool) { println("beep", on) }
 func Oodle(oodleDll string) (func(src []byte, size int) ([]byte, error), error) {
 	return nil, errors.New("Oodle only on Windows")
 }
+
+// KeyHit: no keyboard state outside Windows.
+func KeyHit(vk int) bool { return false }
+
+// SystemEvents: the Windows event log only exists on Windows.
+func SystemEvents(since time.Time) []SysEvent { return nil }
+
+// SystemVersions: dev stand-in.
+func SystemVersions(gpuName string) (win, driver string) {
+	return "Windows 11 24H2 (build 26100.1)", "621.01"
+}
+
+// CPUTemp: dev stand-in (a gentle curve).
+type CPUTemp struct{ Source string }
+
+func OpenCPUTemp(modDir string) *CPUTemp { return &CPUTemp{Source: "dev"} }
+func (c *CPUTemp) Read() float64         { return 62 + 6*math.Sin(float64(time.Now().Unix())/20) }
+func (c *CPUTemp) Close()                {}

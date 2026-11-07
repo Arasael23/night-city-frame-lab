@@ -26,6 +26,16 @@ func ExpRead(id, game string) (on bool, detail string, ok bool) {
 		if GPU().Vendor != "nvidia" {
 			return false, "no NVIDIA graphics card found", false
 		}
+	case "hags":
+		return true, "on (dev)", true
+	case "gamebar":
+		if !fakeExp["gamebar_set"] {
+			return true, "Record what happened is off (Windows default) (dev)", true
+		}
+	case "pcores":
+		if c := CPU(); !c.Hybrid {
+			return false, "not on this PC: the " + c.Name + " has 8 cores of one kind", false
+		}
 	}
 	if fakeExp[id] {
 		return true, "on (dev)", true
@@ -58,3 +68,11 @@ func ExpRun(id, game string) (string, error) {
 	}
 	return "", errors.New("not an action")
 }
+
+// ---- 2.0 stand-ins (dev)
+func TimerResolution() float64 { return 15.625 }
+func HoldTimer(on bool)        {}
+func PinGameX3D() int          { return 0 }
+func QuietStart() []string     { return []string{"WSearch", "SysMain"} }
+func QuietEnd(names []string)  {}
+func OpenCoreIsolation() error { return nil }

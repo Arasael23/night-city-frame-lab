@@ -30,7 +30,53 @@ const (
 	displayClass  = `SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}`
 	schemeHigh    = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
 	schemeUlt     = "e9a42b02-d5df-448d-aa00-03f14749eb61"
+	dwmKey        = `SOFTWARE\Microsoft\Windows\Dwm`
+	gameDvrKey    = `Software\Microsoft\Windows\CurrentVersion\GameDVR` // per user (HKCU)
 )
+
+// ---------------------------------------------------------------- per-user registry (HKCU)
+
+func hkcuDword(path, name string) (uint32, bool) {
+	k, err := registry.OpenKey(registry.CURRENT_USER, path, registry.QUERY_VALUE)
+	if err != nil {
+		return 0, false
+	}
+	defer k.Close()
+	v, _, err := k.GetIntegerValue(name)
+	return uint32(v), err == nil
+}
+
+func hkcuGet(path, name string) string {
+	if v, ok := hkcuDword(path, name); ok {
+		return "dword:" + strconv.FormatUint(uint64(v), 10)
+	}
+	return "absent"
+}
+
+func hkcuSetDword(path, name string, v uint32) error {
+	k, _, err := registry.CreateKey(registry.CURRENT_USER, path, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer k.Close()
+	return k.SetDWordValue(name, v)
+}
+
+func hkcuRestore(path, name, was string) error {
+	if strings.HasPrefix(was, "dword:") {
+		n, _ := strconv.ParseUint(was[6:], 10, 32)
+		return hkcuSetDword(path, name, uint32(n))
+	}
+	k, err := registry.OpenKey(registry.CURRENT_USER, path, registry.SET_VALUE)
+	if err != nil {
+		return nil
+	}
+	defer k.Close()
+	if err := k.DeleteValue(name); err != nil && !errors.Is(err, registry.ErrNotExist) {
+		return err
+	}
+	return nil
+}
 
 // ---------------------------------------------------------------- registry helpers
 
@@ -214,6 +260,12 @@ func cfgState() (string, error) {
 // ---------------------------------------------------------------- read / on / restore
 
 func ExpRead(id, game string) (on bool, detail string, ok bool) {
+	if on, detail, ok, handled := exp3Read(id, game); handled {
+		return on, detail, ok
+	}
+	if on, detail, ok, handled := exp2Read(id, game); handled {
+		return on, detail, ok
+	}
 	switch id {
 	case "power":
 		g, n := activeScheme()
@@ -278,6 +330,35 @@ func ExpRead(id, game string) (on bool, detail string, ok bool) {
 			return true, "Control Flow Guard off for " + gameExe, true
 		}
 		return false, "Control Flow Guard: " + strings.ToLower(st) + " (system default)", true
+	case "mpo":
+		if v, ok := regDword(dwmKey, "OverlayTestMode"); ok && v == 5 {
+			return true, "multiplane overlay off (OverlayTestMode = 5)", true
+		}
+		return false, "multiplane overlay on (Windows default)", true
+	case "gamebar":
+		v, ok := hkcuDword(gameDvrKey, "HistoricalCaptureEnabled")
+		if ok && v == 1 {
+			return false, "Record what happened is on: Windows keeps recording in the background", true
+		}
+		if !ok {
+			return true, "Record what happened is off (Windows default)", true
+		}
+		return true, "Record what happened is off", true
+	case "hags":
+		v, ok := regDword(gfxDriversKey, "HwSchMode")
+		switch {
+		case ok && v == 2:
+			return true, "on", true
+		case ok && v == 1:
+			return false, "off", true
+		}
+		return false, "not set: Windows decides (usually off)", true
+	case "pcores":
+		c := CPU()
+		if !c.Hybrid {
+			return false, fmt.Sprintf("not on this PC: the %s has %d cores of one kind", c.Name, c.Cores), false
+		}
+		return false, fmt.Sprintf("%d performance and %d efficiency cores", c.PCores, c.ECores), true
 	case "standby", "shadercache", "standbyauto":
 		return false, "", true
 	}
@@ -285,6 +366,12 @@ func ExpRead(id, game string) (on bool, detail string, ok bool) {
 }
 
 func ExpOn(id, game string) (map[string]string, error) {
+	if p, handled, err := exp3On(id, game); handled {
+		return p, err
+	}
+	if p, handled, err := exp2On(id, game); handled {
+		return p, err
+	}
 	prev := map[string]string{}
 	switch id {
 	case "power":
@@ -351,6 +438,23 @@ func ExpOn(id, game string) (map[string]string, error) {
 		if _, err := ps(`$ErrorActionPreference='Stop'; Set-ProcessMitigation -Name ` + gameExe + ` -Disable CFG`); err != nil {
 			return nil, errors.New("could not change the game's exploit protection settings")
 		}
+	case "mpo":
+		prev["mode"] = regGet(dwmKey, "OverlayTestMode")
+		if err := regSetDword(dwmKey, "OverlayTestMode", 5); err != nil {
+			return nil, err
+		}
+	case "gamebar":
+		prev["hist"] = hkcuGet(gameDvrKey, "HistoricalCaptureEnabled")
+		if err := hkcuSetDword(gameDvrKey, "HistoricalCaptureEnabled", 0); err != nil {
+			return nil, err
+		}
+	case "pcores":
+		if !CPU().Hybrid {
+			return nil, errors.New("this CPU has one kind of core")
+		}
+		// nothing changes in Windows: Frame Lab pins the game when it sees it start
+	case "hags":
+		return nil, errors.New("change it in Windows Settings > System > Display > Graphics, then restart")
 	default:
 		return nil, errors.New("not a setting that can be switched on")
 	}
@@ -358,6 +462,12 @@ func ExpOn(id, game string) (map[string]string, error) {
 }
 
 func ExpRestore(id, game string, prev map[string]string) error {
+	if handled, err := exp3Restore(id, game, prev); handled {
+		return err
+	}
+	if handled, err := exp2Restore(id, game, prev); handled {
+		return err
+	}
 	switch id {
 	case "power":
 		if g := prev["scheme"]; g != "" {
@@ -411,6 +521,12 @@ func ExpRestore(id, game string, prev map[string]string) error {
 			return err
 		}
 		return regRestore(ifeoKey, "MitigationAuditOptions", prev["audit"])
+	case "mpo":
+		return regRestore(dwmKey, "OverlayTestMode", prev["mode"])
+	case "gamebar":
+		return hkcuRestore(gameDvrKey, "HistoricalCaptureEnabled", prev["hist"])
+	case "pcores":
+		UnpinGame()
 	}
 	return nil
 }
@@ -465,6 +581,9 @@ func shaderCacheDirs() []string {
 }
 
 func ExpRun(id, game string) (string, error) {
+	if msg, handled, err := exp2Run(id); handled {
+		return msg, err
+	}
 	switch id {
 	case "standby":
 		if err := PurgeStandby(); err != nil {
