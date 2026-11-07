@@ -13,41 +13,42 @@ import (
 )
 
 type Sample struct {
-	Qpc            int64
-	GpuClockMHz    float64
-	MemClockMHz    float64
-	GpuPowerW      float64
-	GpuTempC       float64
-	GpuUtilPct     float64 // whole GPU (NVML)
-	EncUtilPct     float64 // NVENC (OBS recording/streaming)
-	VramUsedMB     float64 // whole GPU (NVML)
-	VramTotalMB    float64
-	Throttle       uint64  // NVML clock event reasons bitmask
-	GameCpuPct     float64 // game process CPU, % of the whole CPU
-	MaxCorePct     float64 // busiest logical core
-	GameReadMBs    float64 // game disk reads
-	GameWorkingMB  float64
-	GameGpu3DPct   float64 // game's share of the 3D engine
-	OtherGpuPct    float64 // busiest other process on the GPU (3D+compute+encode)
-	OtherGpuName   string
+	Qpc             int64
+	GpuClockMHz     float64
+	MemClockMHz     float64
+	GpuPowerW       float64
+	GpuTempC        float64
+	GpuUtilPct      float64 // whole GPU (NVML)
+	EncUtilPct      float64 // NVENC (OBS recording/streaming)
+	VramUsedMB      float64 // whole GPU (NVML)
+	VramTotalMB     float64
+	Throttle        uint64  // NVML clock event reasons bitmask
+	GameCpuPct      float64 // game process CPU, % of the whole CPU
+	MaxCorePct      float64 // busiest logical core
+	GameReadMBs     float64 // game disk reads
+	GameWorkingMB   float64
+	GameGpu3DPct    float64 // game's share of the 3D engine
+	OtherGpuPct     float64 // busiest other process on the GPU (3D+compute+encode)
+	OtherGpuName    string
 	GameDedicatedMB float64 // game dedicated GPU memory (Windows counter)
-	AvailRamMB     float64
-	CpuClockMHz    float64 // average effective clock of all cores (base clock x % Processor Performance)
-	CpuTotalPct    float64 // whole CPU busy
-	CoresBusy      float64 // logical cores at 90% or more
-	DpcPct         float64 // CPU time in driver DPCs (all cores, % of one core's time x cores / cores)
-	IntPct         float64 // CPU time in hardware interrupts
-	PagesSec       float64 // hard page faults per second (memory read back from disk)
-	GameSharedMB   float64 // game's GPU memory kept in system RAM (VRAM spilled over)
-	CommitMB       float64 // memory Windows has promised to programs (RAM + page file), 1.3.4+
-	CommitLimitMB  float64 // the most it can promise; past it, memory requests fail
+	AvailRamMB      float64
+	CpuClockMHz     float64 // average effective clock of all cores (base clock x % Processor Performance)
+	CpuTotalPct     float64 // whole CPU busy
+	CoresBusy       float64 // logical cores at 90% or more
+	DpcPct          float64 // CPU time in driver DPCs (all cores, % of one core's time x cores / cores)
+	IntPct          float64 // CPU time in hardware interrupts
+	PagesSec        float64 // hard page faults per second (memory read back from disk)
+	GameSharedMB    float64 // game's GPU memory kept in system RAM (VRAM spilled over)
+	CommitMB        float64 // memory Windows has promised to programs (RAM + page file), 1.3.4+
+	CommitLimitMB   float64 // the most it can promise; past it, memory requests fail
+	CpuTempC        float64 // CPU temperature (HWiNFO / PawnIO), 0 = not read (2.0)
 }
 
 var Header = []string{"qpc", "gpu_clock_mhz", "mem_clock_mhz", "gpu_power_w", "gpu_temp_c", "gpu_util_pct", "enc_util_pct",
 	"vram_used_mb", "vram_total_mb", "throttle", "game_cpu_pct", "max_core_pct", "game_read_mbs", "game_working_mb",
 	"game_gpu3d_pct", "other_gpu_pct", "other_gpu_name", "game_dedicated_mb", "avail_ram_mb",
 	"cpu_clock_mhz", "cpu_total_pct", "cores_busy", "dpc_pct", "int_pct", "pages_sec", "game_shared_mb",
-	"commit_mb", "commit_limit_mb"}
+	"commit_mb", "commit_limit_mb", "cpu_temp_c"}
 
 type Writer struct {
 	f  *os.File
@@ -77,7 +78,7 @@ func (w *Writer) Write(s *Sample) error {
 		ff(s.MaxCorePct), ff(s.GameReadMBs), ff(s.GameWorkingMB), ff(s.GameGpu3DPct), ff(s.OtherGpuPct), s.OtherGpuName,
 		ff(s.GameDedicatedMB), ff(s.AvailRamMB),
 		ff(s.CpuClockMHz), ff(s.CpuTotalPct), ff(s.CoresBusy), ff(s.DpcPct), ff(s.IntPct), ff(s.PagesSec), ff(s.GameSharedMB),
-		ff(s.CommitMB), ff(s.CommitLimitMB)})
+		ff(s.CommitMB), ff(s.CommitLimitMB), ff(s.CpuTempC)})
 }
 
 func (w *Writer) Flush() { w.w.Flush(); w.bw.Flush() }
@@ -136,6 +137,7 @@ func Read(path string) ([]Sample, error) {
 		s.CpuClockMHz, s.CpuTotalPct, s.CoresBusy = g("cpu_clock_mhz"), g("cpu_total_pct"), g("cores_busy")
 		s.DpcPct, s.IntPct, s.PagesSec, s.GameSharedMB = g("dpc_pct"), g("int_pct"), g("pages_sec"), g("game_shared_mb")
 		s.CommitMB, s.CommitLimitMB = g("commit_mb"), g("commit_limit_mb")
+		s.CpuTempC = g("cpu_temp_c")
 		out = append(out, s)
 	}
 	return out, nil
@@ -143,12 +145,12 @@ func Read(path string) ([]Sample, error) {
 
 // Throttle bits (NVML clocks event reasons) that mean the GPU slowed itself down.
 const (
-	ThrottleSwPowerCap     = 0x4
-	ThrottleHwSlowdown     = 0x8
-	ThrottleSwThermal      = 0x20
-	ThrottleHwThermal      = 0x40
-	ThrottleHwPowerBrake   = 0x80
-	ThrottleSlowdownMask   = ThrottleSwPowerCap | ThrottleHwSlowdown | ThrottleSwThermal | ThrottleHwThermal | ThrottleHwPowerBrake
+	ThrottleSwPowerCap   = 0x4
+	ThrottleHwSlowdown   = 0x8
+	ThrottleSwThermal    = 0x20
+	ThrottleHwThermal    = 0x40
+	ThrottleHwPowerBrake = 0x80
+	ThrottleSlowdownMask = ThrottleSwPowerCap | ThrottleHwSlowdown | ThrottleSwThermal | ThrottleHwThermal | ThrottleHwPowerBrake
 )
 
 // Serious reports slowdowns beyond the normal power limit (heat or hardware slowdown).
