@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"framelab/internal/gamefs"
 )
 
 // The last log of each framework and plugin: RED4ext and the plugins that log next to it or in their
@@ -21,7 +23,7 @@ var (
 )
 
 func newestLog(dir string, match func(name string) bool) (string, os.FileInfo) {
-	ents, err := os.ReadDir(dir)
+	ents, err := gamefs.ReadDir(dir)
 	if err != nil {
 		return "", nil
 	}
@@ -43,7 +45,7 @@ func newestLog(dir string, match func(name string) bool) (string, os.FileInfo) {
 }
 
 func readLog(name, path string, fi os.FileInfo, game string) *LogSource {
-	f, err := os.Open(path)
+	f, err := gamefs.Open(path)
 	if err != nil {
 		return nil
 	}
@@ -114,7 +116,7 @@ func checkLogs(r *Report, game string) {
 	// RED4ext and plugins that log into red4ext/logs as <name>-<date>.log
 	logDir := filepath.Join(game, "red4ext", "logs")
 	groups := map[string]bool{}
-	if ents, err := os.ReadDir(logDir); err == nil {
+	if ents, err := gamefs.ReadDir(logDir); err == nil {
 		for _, e := range ents {
 			if m := reDatedLog.FindStringSubmatch(e.Name()); m != nil {
 				groups[m[1]] = true
@@ -135,7 +137,7 @@ func checkLogs(r *Report, game string) {
 	}
 	// plugins with logs in their own folder
 	plugDir := filepath.Join(game, "red4ext", "plugins")
-	if ents, err := os.ReadDir(plugDir); err == nil {
+	if ents, err := gamefs.ReadDir(plugDir); err == nil {
 		for _, e := range ents {
 			if e.IsDir() {
 				p, fi := newestLog(filepath.Join(plugDir, e.Name()), nil)
@@ -145,18 +147,18 @@ func checkLogs(r *Report, game string) {
 	}
 	// REDscript
 	if p := filepath.Join(game, "r6", "logs", "redscript_rCURRENT.log"); fileExists(p) {
-		fi, _ := os.Stat(p)
+		fi, _ := gamefs.Stat(p)
 		add("REDscript", p, fi)
 	}
 	// CET and its mods
 	cet := filepath.Join(game, "bin", "x64", "plugins", "cyber_engine_tweaks")
 	for _, n := range []string{"cyber_engine_tweaks.log", "scripting.log"} {
 		if p := filepath.Join(cet, n); fileExists(p) {
-			fi, _ := os.Stat(p)
+			fi, _ := gamefs.Stat(p)
 			add("CET ("+strings.TrimSuffix(n, ".log")+")", p, fi)
 		}
 	}
-	if ents, err := os.ReadDir(filepath.Join(cet, "mods")); err == nil {
+	if ents, err := gamefs.ReadDir(filepath.Join(cet, "mods")); err == nil {
 		for _, e := range ents {
 			if e.IsDir() {
 				p, fi := newestLog(filepath.Join(cet, "mods", e.Name()), nil)
@@ -177,6 +179,6 @@ func checkLogs(r *Report, game string) {
 }
 
 func fileExists(p string) bool {
-	st, err := os.Stat(p)
+	st, err := gamefs.Stat(p)
 	return err == nil && !st.IsDir()
 }

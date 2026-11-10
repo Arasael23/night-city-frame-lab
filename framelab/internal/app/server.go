@@ -132,6 +132,9 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, s.Settings.Get())
+	case path == "settings/info":
+		// 2.5: the keys Settings offers and each build's MO2 instance (or the ones found for it)
+		writeJSON(w, map[string]any{"hotkeys": HotKeys, "mo2": mo2States(s.Settings.Get())})
 	case path == "leftover/remove" && r.Method == http.MethodPost:
 		// HitchRecorder / markers found in a build outside a session (e.g. an old manual install)
 		cfg := s.Settings.Get()
@@ -324,6 +327,10 @@ func (s *Server) sessionAPI(w http.ResponseWriter, r *http.Request, rest string,
 			writeErr(w, 405, errors.New("POST only"))
 			return
 		}
+		if act := s.Ctl.ActiveSession(); act != "" && filepath.Clean(act) == filepath.Clean(dir) {
+			writeErr(w, 409, errors.New("this session is still set up on the Capture tab: cancel it there first (that also removes it when nothing was recorded)"))
+			return
+		}
 		if err := os.RemoveAll(dir); err != nil {
 			writeErr(w, 500, err)
 			return
@@ -353,18 +360,19 @@ func (s *Server) sessionAPI(w http.ResponseWriter, r *http.Request, rest string,
 // ---------------------------------------------------------------- state for the window
 
 type stateOut struct {
-	Version    string           `json:"version"`
-	Admin      bool             `json:"admin"`
-	GPU        string           `json:"gpu"`
-	GpuInfo    platform.GpuInfo `json:"gpu_info"`
-	Config     Config           `json:"config"`
-	Builds     []BuildState     `json:"builds"`
-	Components map[string]any   `json:"components"`
-	Game       map[string]any   `json:"game"`
-	Live       map[string]any   `json:"live"`
-	Capture    CaptureStatus    `json:"capture"`
-	Names      string           `json:"names"`
-	Time       string           `json:"time"`
+	Version    string            `json:"version"`
+	Admin      bool              `json:"admin"`
+	GPU        string            `json:"gpu"`
+	GpuInfo    platform.GpuInfo  `json:"gpu_info"`
+	Config     Config            `json:"config"`
+	Builds     []BuildState      `json:"builds"`
+	Components map[string]any    `json:"components"`
+	Game       map[string]any    `json:"game"`
+	Live       map[string]any    `json:"live"`
+	Capture    CaptureStatus     `json:"capture"`
+	Names      string            `json:"names"`
+	Time       string            `json:"time"`
+	Keys       map[string]string `json:"keys"` // names of the session keys: felt (F10), mark (F11) (2.5)
 }
 
 var (
@@ -390,6 +398,8 @@ func (s *Server) state() stateOut {
 	}
 	st := stateOut{Version: Version, Admin: platform.IsAdmin(), GPU: platform.GPUName(), GpuInfo: platform.GPU(), Config: cfg, Builds: builds,
 		Capture: s.Ctl.Status(), Time: time.Now().Format("15:04:05")}
+	fk, mk := cfg.Keys()
+	st.Keys = map[string]string{"felt": KeyName(fk), "mark": KeyName(mk)}
 	st.Components = map[string]any{
 		"presentmon": map[string]any{"found": comp.PresentMon != "", "path": comp.PresentMon, "name": filepath.Base(comp.PresentMon)},
 		"hitch_pkg":  map[string]any{"found": comp.HitchPkg != "", "version": bundledHitchVersion(s.Paths)},

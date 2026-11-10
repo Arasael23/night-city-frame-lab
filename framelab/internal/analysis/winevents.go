@@ -222,6 +222,28 @@ func (l *winLayer) in(q0, q1 int64) (items []WinItem, driverMs, driverMax, pagin
 	return
 }
 
+// SlowReadMs: a single disk read taking this long is the drive (or something scanning it) being slow;
+// a healthy SSD answers in well under that even while the game streams hard.
+const SlowReadMs = 15.0
+
+// reads: the game's longest single disk read in [q0, q1], and how much Microsoft Defender read from disk then.
+func (l *winLayer) reads(q0, q1 int64) (gameMaxMs, defenderMB float64) {
+	lo := sort.Search(len(l.rows), func(i int) bool { return l.rows[i].q >= q0-l.bucket })
+	for i := lo; i < len(l.rows) && l.rows[i].q <= q1; i++ {
+		r := &l.rows[i]
+		if r.kind != "diskread" {
+			continue
+		}
+		switch {
+		case strings.EqualFold(r.name, gameExe):
+			gameMaxMs = math.Max(gameMaxMs, r.maxUs/1000)
+		case strings.EqualFold(r.name, "MsMpEng.exe"):
+			defenderMB += r.bytes / (1 << 20)
+		}
+	}
+	return round2(gameMaxMs), round2(defenderMB)
+}
+
 // summary over the time played
 func (l *winLayer) summary(playing func(int64) bool, playS float64) *WinSummary {
 	s := &WinSummary{Recorded: true}

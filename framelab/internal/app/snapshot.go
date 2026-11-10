@@ -12,6 +12,7 @@ import (
 	"sort"
 
 	"framelab/internal/analysis"
+	"framelab/internal/gamefs"
 	"framelab/internal/platform"
 )
 
@@ -67,7 +68,7 @@ func modFiles(game string) []analysis.ModFile {
 	seen := map[string]bool{}
 	for _, root := range modRoots {
 		dir := filepath.Join(game, root)
-		ents, err := os.ReadDir(dir)
+		ents, err := gamefs.ReadDir(dir) // MO2 builds: with the MO2 mods (2.5)
 		if err != nil {
 			continue
 		}
@@ -87,7 +88,7 @@ func modFiles(game string) []analysis.ModFile {
 				}
 			} else {
 				n := 0
-				filepath.WalkDir(filepath.Join(dir, e.Name()), func(p string, d fs.DirEntry, err error) error {
+				gamefs.WalkDir(filepath.Join(dir, e.Name()), func(p string, d fs.DirEntry, err error) error {
 					if err != nil || d.IsDir() {
 						return nil
 					}

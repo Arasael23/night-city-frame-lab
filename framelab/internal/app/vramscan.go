@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"framelab/internal/gamefs"
 	"framelab/internal/modmap"
 	"framelab/internal/platform"
 	"framelab/internal/vram"
@@ -43,10 +44,7 @@ func (s *Server) scanVram(i int) error {
 		if dec, err := platform.Oodle(filepath.Join(b.Path, "bin", "x64", "oo2ext_7_win64.dll")); err == nil {
 			o.Decompress = dec
 		}
-		if cfg.Library != "" {
-			o.Library = modmap.LoadLibrary(cfg.Library, filepath.Join(s.Paths.Data, "library_index.json"))
-			o.Library.AddManifest(filepath.Join(s.Paths.Data, "library_manifest.json"))
-		}
+		o.Library = libraryFor(s.Paths, cfg, b.Path)
 		o.Loaded, o.Session = s.loadedInLastSession(b.Path)
 		vortex := modmap.VortexSources(b.Path)
 		o.Nexus = func(rel string) string {
@@ -55,6 +53,11 @@ func (s *Server) scanVram(i int) error {
 					if id := modmap.NexusID(zip); id != "" {
 						return id
 					}
+				}
+			}
+			if inst := gamefs.Managed(b.Path); inst != nil { // MO2 keeps the mod's Nexus ID in its meta.ini
+				if id := inst.NexusID(gamefs.Source(filepath.Join(b.Path, filepath.FromSlash(rel)))); id != "" {
+					return id
 				}
 			}
 			return modmap.NexusID(vortex[strings.ToLower(rel)])

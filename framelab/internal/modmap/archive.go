@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"framelab/internal/gamefs"
 )
 
 // PathHash is the game's resource path hash: FNV-1a 64 of the lower-case path with backslashes.
@@ -67,7 +69,7 @@ func ArchiveEntries(path string) ([]Entry, error) {
 
 // ArchiveIndex also returns the segment table (16-byte records after the file records).
 func ArchiveIndex(path string) ([]Entry, []Seg, error) {
-	f, err := os.Open(path)
+	f, err := gamefs.Open(path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -149,10 +151,10 @@ type BuildArchives struct {
 func ScanBuild(game string) *BuildArchives {
 	b := &BuildArchives{Game: game, ByHash: map[uint64]string{}, Size: map[uint64]uint32{}}
 	var files []string
-	if m, _ := filepath.Glob(filepath.Join(game, "archive", "pc", "mod", "*.archive")); m != nil {
+	if m, _ := gamefs.Glob(filepath.Join(game, "archive", "pc", "mod", "*.archive")); m != nil {
 		files = append(files, m...)
 	}
-	if m, _ := filepath.Glob(filepath.Join(game, "mods", "*", "archives", "*.archive")); m != nil {
+	if m, _ := gamefs.Glob(filepath.Join(game, "mods", "*", "archives", "*.archive")); m != nil {
 		files = append(files, m...)
 	}
 	sort.Strings(files)

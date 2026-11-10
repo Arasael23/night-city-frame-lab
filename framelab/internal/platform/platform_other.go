@@ -28,6 +28,8 @@ func HideWindow(cmd *exec.Cmd)      {}
 func OpenFolder(path string)        { println("open folder:", path) }
 func OpenURL(url string)            { println("open url:", url) }
 
+func ProcessPaths(exe string) []string { return nil }
+
 func FindGame() []GameProc {
 	if f := os.Getenv("FRAMELAB_FAKE_GAME_FILE"); f != "" {
 		if b, err := os.ReadFile(f); err == nil {

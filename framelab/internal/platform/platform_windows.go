@@ -110,6 +110,19 @@ func exePath(pid uint32) string {
 	return windows.UTF16ToString(buf[:n])
 }
 
+// ProcessPaths: the exe paths of running processes with this file name (2.5: a running MO2).
+func ProcessPaths(exe string) []string {
+	var out []string
+	for pid, name := range processes() {
+		if strings.EqualFold(name, exe) {
+			if p := exePath(pid); p != "" {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}
+
 // FindGame lists running Cyberpunk2077.exe processes.
 func FindGame() []GameProc {
 	var out []GameProc

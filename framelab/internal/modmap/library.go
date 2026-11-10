@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"framelab/internal/gamefs"
 )
 
 // Library maps archives, script folders and plugins to the library zip they came from.
@@ -15,6 +17,7 @@ type Library struct {
 	Root  string
 	Owner map[string]string // key -> zip path relative to Root
 	Zips  []ZipInfo
+	Names map[string]string // owner -> its name when it isn't a zip (MO2 mods, 2.5)
 }
 
 type ZipInfo struct {
@@ -152,7 +155,35 @@ func (l *Library) Find(key string) (label, rel string) {
 	if rel == "" {
 		return "", ""
 	}
+	if n := l.Names[rel]; n != "" {
+		return n, rel
+	}
 	return ZipLabel(rel), rel
+}
+
+// AddMO2 names the archives, script folders and plugins of an MO2 build after the MO2 mod they
+// come from. They win over the zips: the MO2 mod is what the game really runs.
+func (l *Library) AddMO2(game string) int {
+	files := gamefs.ModFiles(game)
+	if l.Names == nil {
+		l.Names = map[string]string{}
+	}
+	rels := make([]string, 0, len(files))
+	for rel := range files {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	n := 0
+	for _, rel := range rels {
+		mod := files[rel]
+		owner := `MO2\` + mod
+		for _, k := range keysForEntry(rel) {
+			l.Owner[k] = owner
+			l.Names[owner] = mod
+			n++
+		}
+	}
+	return n
 }
 
 // AddManifest merges a build manifest ({"Folder/zip name": [[member, game path], ...]}), which also covers

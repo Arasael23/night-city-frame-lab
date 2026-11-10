@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"framelab/internal/gamefs"
 	"framelab/internal/platform"
 )
 
@@ -406,10 +408,10 @@ func injected(game string) []string {
 	bin := filepath.Join(game, "bin", "x64")
 	for _, n := range injectorDLLs {
 		p := filepath.Join(bin, n)
-		if _, err := os.Stat(p); err != nil {
+		if _, err := gamefs.Stat(p); err != nil {
 			continue
 		}
-		v, prod := platform.FileVersion(p)
+		v, prod := platform.FileVersion(gamefs.Real(p))
 		label := prod
 		if label == "" {
 			label = "unknown"
@@ -419,7 +421,7 @@ func injected(game string) []string {
 		}
 		out = append(out, label+" ("+n+")")
 	}
-	asis, _ := filepath.Glob(filepath.Join(bin, "plugins", "*.asi"))
+	asis, _ := gamefs.Glob(filepath.Join(bin, "plugins", "*.asi"))
 	for _, a := range asis {
 		n := strings.ToLower(filepath.Base(a))
 		if n == "cyber_engine_tweaks.asi" {
@@ -427,7 +429,7 @@ func injected(game string) []string {
 		}
 		out = append(out, filepath.Base(a)+" (ASI plugin)")
 	}
-	if _, err := os.Stat(filepath.Join(game, "red4ext", "plugins", "UltraTool")); err == nil {
+	if _, err := gamefs.Stat(filepath.Join(game, "red4ext", "plugins", "UltraTool")); err == nil {
 		out = append(out, "Ultra+ (UltraTool)")
 	}
 	return out
@@ -437,7 +439,7 @@ func dlssFiles(game string) string {
 	bin := filepath.Join(game, "bin", "x64")
 	var parts []string
 	for _, x := range [][2]string{{"nvngx_dlss.dll", "Super Resolution"}, {"nvngx_dlssd.dll", "Ray Reconstruction"}, {"nvngx_dlssg.dll", "Frame Gen"}} {
-		if v, _ := platform.FileVersion(filepath.Join(bin, x[0])); v != "" {
+		if v, _ := platform.FileVersion(gamefs.Real(filepath.Join(bin, x[0]))); v != "" {
 			parts = append(parts, x[1]+" "+shortVer(v))
 		}
 	}
@@ -469,10 +471,10 @@ func frameworkRows(game string) []CheckRow {
 	var out []CheckRow
 	for _, fw := range frameworks {
 		p := filepath.Join(game, filepath.FromSlash(strings.ReplaceAll(fw.file, `\`, "/")))
-		if _, err := os.Stat(p); err != nil {
+		if _, err := gamefs.Stat(p); err != nil {
 			continue
 		}
-		v, _ := platform.FileVersion(p)
+		v, _ := platform.FileVersion(gamefs.Real(p))
 		name := fw.name
 		if v != "" {
 			name += " " + shortVer(v)
@@ -488,7 +490,7 @@ func frameworkRows(game string) []CheckRow {
 }
 
 func logTrouble(dir, prefix string) string {
-	ents, err := os.ReadDir(dir)
+	ents, err := gamefs.ReadDir(dir)
 	if err != nil {
 		return ""
 	}
@@ -506,7 +508,7 @@ func logTrouble(dir, prefix string) string {
 	if best == "" {
 		return ""
 	}
-	b, err := os.ReadFile(best)
+	b, err := gamefs.ReadFile(best)
 	if err != nil {
 		return ""
 	}
@@ -535,14 +537,15 @@ type debugFile struct {
 func debugFiles(game string) []debugFile {
 	var out []debugFile
 	for _, pat := range []string{`red4ext/plugins/*/*.yaml`, `red4ext/plugins/*/*.yml`, `red4ext/plugins/*/*.ini`, `red4ext/plugins/*/*.toml`} {
-		ms, _ := filepath.Glob(filepath.Join(game, filepath.FromSlash(pat)))
+		ms, _ := gamefs.Glob(filepath.Join(game, filepath.FromSlash(pat)))
 		for _, m := range ms {
+			m = gamefs.Real(m) // MO2: the mod's own file is the one to change
 			if b, err := os.ReadFile(m); err == nil && len(b) < 1<<20 && reDebugOn.Match(b) {
 				out = append(out, debugFile{m, "flag"})
 			}
 		}
 	}
-	cfg := filepath.Join(game, "red4ext", "config.ini")
+	cfg := gamefs.Real(filepath.Join(game, "red4ext", "config.ini"))
 	if b, err := os.ReadFile(cfg); err == nil && reLevel.Match(b) {
 		out = append(out, debugFile{cfg, "red4ext"})
 	}
@@ -552,9 +555,11 @@ func debugFiles(game string) []debugFile {
 func logsSizeMB(game string) float64 {
 	var total int64
 	for _, d := range []string{"red4ext/logs", "r6/logs", "bin/x64/plugins/cyber_engine_tweaks"} {
-		filepath.Walk(filepath.Join(game, filepath.FromSlash(d)), func(p string, fi os.FileInfo, err error) error {
-			if err == nil && !fi.IsDir() && strings.EqualFold(filepath.Ext(p), ".log") {
-				total += fi.Size()
+		gamefs.WalkDir(filepath.Join(game, filepath.FromSlash(d)), func(p string, de fs.DirEntry, err error) error {
+			if err == nil && !de.IsDir() && strings.EqualFold(filepath.Ext(p), ".log") {
+				if fi, err := de.Info(); err == nil {
+					total += fi.Size()
+				}
 			}
 			return nil
 		})

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"framelab/internal/conflicts"
+	"framelab/internal/gamefs"
 	"framelab/internal/modmap"
 )
 
@@ -217,7 +218,7 @@ func Scan(o Options) *Report {
 	wantNames := map[uint64]bool{}
 	for _, rel := range order {
 		full := filepath.Join(o.Game, filepath.FromSlash(rel))
-		if fi, err := os.Stat(full); err == nil {
+		if fi, err := gamefs.Stat(full); err == nil {
 			r.Sigs[rel] = fmt.Sprintf("%d %d", fi.Size(), fi.ModTime().Unix())
 		}
 		es, segs, err := modmap.ArchiveIndex(full)
@@ -244,7 +245,7 @@ func Scan(o Options) *Report {
 		if m.Nexus == "" && o.Nexus != nil {
 			m.Nexus = o.Nexus(rel)
 		}
-		fh, _ := os.Open(full)
+		fh, _ := gamefs.Open(full)
 		for _, e := range es {
 			m.Files++
 			if e.SegEnd <= e.SegStart+1 || int(e.SegEnd) > len(segs) {

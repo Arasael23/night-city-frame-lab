@@ -28,6 +28,8 @@ type Meta struct {
 	GpuReads    []string  `json:"gpu_reads,omitempty"`   // which readings the card's driver gave
 	Experiments []string  `json:"experiments,omitempty"` // Windows settings from the Experiments tab that were on
 	Finished    bool      `json:"finished"`
+	FeltKey     string    `json:"felt_key,omitempty"` // name of the "I felt a stutter" key (2.5; empty = F10)
+	MarkKey     string    `json:"mark_key,omitempty"` // name of the "mark a part" key (2.5; empty = F11)
 }
 
 type LayerInfo struct {
@@ -66,4 +68,19 @@ func WriteMeta(dir string, m *Meta) error {
 		return err
 	}
 	return os.Rename(tmp, filepath.Join(dir, FileMeta))
+}
+
+// Keys: names of the session's stutter and mark keys (F10 / F11 before 2.5).
+func (m *Meta) Keys() (felt, mark string) {
+	felt, mark = "F10", "F11"
+	if m == nil {
+		return
+	}
+	if m.FeltKey != "" {
+		felt = m.FeltKey
+	}
+	if m.MarkKey != "" {
+		mark = m.MarkKey
+	}
+	return
 }

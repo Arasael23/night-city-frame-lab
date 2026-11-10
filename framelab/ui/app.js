@@ -15,7 +15,7 @@ const GROUPS = {
   cet: { label: 'CET Lua mods', color: '--c-cet' },
   gpu: { label: 'GPU bound (heavy frame)', color: '--c-gpu' },
   vram: { label: 'VRAM over budget', color: '--c-vram' },
-  disk: { label: 'disk reads', color: '--c-disk' },
+  disk: { label: 'heavy streaming (lots of data read)', color: '--c-disk' },
   ram: { label: 'system RAM full', color: '--c-ram' },
   driver: { label: 'driver (interrupts / DPCs)', color: '--c-driver' },
   paging: { label: 'game memory read back from disk', color: '--c-paging' },
@@ -24,8 +24,11 @@ const GROUPS = {
   other: { label: 'GPU memory', color: '--c-unexplained' },
 };
 const gcol = (g) => css((GROUPS[g] || GROUPS.unexplained).color);
+// 2.5: the session keys can be changed in Settings. KEYS: the current ones; repKeys: the ones a recorded session used.
+const KEYS = () => (S.state && S.state.keys) || { felt: 'F10', mark: 'F11' };
+const repKeys = (r) => ({ felt: (r && r.meta && r.meta.felt_key) || 'F10', mark: (r && r.meta && r.meta.mark_key) || 'F11' });
 
-const S = { state: null, sessions: [], cur: null, curId: null, spikeSel: null, tab: 'capture', charts: [], modSort: 'score', modFilter: '', cmpA: '', cmpB: '', cmpData: {}, settingsDirty: false };
+const S = { state: null, sessions: [], cur: null, curId: null, spikeSel: null, tab: 'capture', charts: [], modSort: 'score', modFilter: '', cmpIds: null, cmpData: {}, settingsDirty: false };
 
 async function api(path, body) {
   const opt = { method: body ? 'POST' : 'GET', headers: { 'X-Token': TOKEN } };
@@ -73,7 +76,7 @@ function showTab(t) {
   if (t === 'checks') renderChecks();
   if (t === 'experiments') renderExperiments();
   if (t === 'vram') renderVram();
-  if (t === 'settings') renderSettings(true);
+  if (t === 'settings') { S.setInfo = null; renderSettings(true); }
   if (t === 'capture') renderCapture();
 }
 $$('#tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
@@ -100,7 +103,7 @@ function renderTop() {
   const st = S.state;
   const parts = [];
   const c = st.capture;
-  if (c.state === 'recording') parts.push('<span class="pill rec">● REC ' + fmt.dur(c.recording_s) + '</span>' + (c.focus ? '<span class="pill warn">F11 mark ' + fmt.dur(c.focus_s) + '</span>' : ''));
+  if (c.state === 'recording') parts.push('<span class="pill rec">● REC ' + fmt.dur(c.recording_s) + '</span>' + (c.focus ? '<span class="pill warn">' + esc(KEYS().mark) + ' mark ' + fmt.dur(c.focus_s) + '</span>' : ''));
   if (st.game.running) {
     const b = st.config.builds[st.game.build];
     parts.push('<span class="pill ok">Game running' + (b ? ' · ' + esc(b.name) : '') + '</span>');
@@ -147,8 +150,9 @@ function layerRows(st, b) {
     if (!comp.hitch_pkg.found) return add('r', name, 'in game', 'Needs HitchRecorder (missing).');
     add(ok ? 'g' : 'y', name, 'in game', text);
   };
-  scripts('REDscript per mod', true, 'HitchRecorder times every script function the game runs and charges it to the mod whose .reds file it came from. Only in the parts you mark with F11.');
-  scripts('CET Lua per mod', b && b.cet, b && b.cet ? 'HitchRecorder times every CET callback (onUpdate, onDraw, Observe, Override, hotkeys) per mod. Only in the parts you mark with F11.' : 'No CET in this build.');
+  const mk = esc(KEYS().mark);
+  scripts('REDscript per mod', true, 'HitchRecorder times every script function the game runs and charges it to the mod whose .reds file it came from. Only in the parts you mark with ' + mk + '.');
+  scripts('CET Lua per mod', b && b.cet, b && b.cet ? 'HitchRecorder times every CET callback (onUpdate, onDraw, Observe, Override, hotkeys) per mod. Only in the parts you mark with ' + mk + '.' : 'No CET in this build.');
   if (st.config.no_windows_events) add('', 'Windows events', 'outside', 'Off in Settings.');
   else add(st.admin ? 'g' : 'y', 'Windows events', 'outside', 'Which drivers ran interrupts / DPCs and for how long, memory read back from disk (hard page faults) and disk use per program: for the stutters nothing in the game explains.' + (st.admin ? '' : ' Needs admin.'));
   if (!comp.presentmon.found) add('r', 'Frames + GPU time', 'outside', 'PresentMon not found (CapFrameX\\PresentMon or components\\PresentMon).');
@@ -176,7 +180,7 @@ const STATE_TEXT = {
   arming: ['Setting up ...', 'Putting HitchRecorder and the markers into the game for this session.'],
   waiting: ['Ready: start the game', 'Everything records by itself from when the game starts until you quit.'],
   running: ['Recording', 'Play normally. Quit the game to finish.'],
-  recording: ['Recording', 'Play normally. F11 where it stutters starts a mark, F11 again ends it. F10 when you feel a stutter. Quit the game to finish.'],
+  recording: ['Recording', 'Play normally. {mark} where it stutters starts a mark, {mark} again ends it. {felt} when you feel a stutter. Quit the game to finish.'],
   finishing: ['Finishing ...', 'Collecting everything, taking the recorders out of the game, analysing.'],
   done: ['Done', 'The report is ready.'],
   error: ['Problem', ''],
@@ -198,8 +202,8 @@ function renderCapture() {
           <div id="cap-buttons" style="display:flex;gap:10px;margin-top:12px;align-items:center"></div>
           <ol class="howto" id="cap-howto">
             <li>Start session (game closed): Frame Lab puts its recorders into the game.</li><li>Start the game and play. Everything records by itself.</li>
-            <li><b>F11</b> where it stutters starts a mark, F11 again ends it. Script time per mod (REDscript, CET) is measured only inside marks: that's how you find the mod behind a stutter.</li>
-            <li><b>F10</b> when you feel a stutter: the report shows what happened in the 2 seconds before.</li><li>Quit the game.</li>
+            <li><b class="kn-mark">F11</b> where it stutters starts a mark, <span class="kn-mark">F11</span> again ends it. Script time per mod (REDscript, CET) is measured only inside marks: that's how you find the mod behind a stutter.</li>
+            <li><b class="kn-felt">F10</b> when you feel a stutter: the report shows what happened in the 2 seconds before.</li><li>Quit the game.</li>
             <li>Frame Lab collects, takes the recorders out again and opens the report.</li></ol>
           <div class="steps" id="cap-steps"></div>
         </div></div>
@@ -212,13 +216,17 @@ function renderCapture() {
     t.oninput = () => { try { localStorage.setItem('fl.title', t.value); } catch (e) { /* ignore */ } };
   }
   const cfg = st.config;
+  const K = KEYS();
+  $$('.kn-mark', root).forEach(e => { e.textContent = K.mark; });
+  $$('.kn-felt', root).forEach(e => { e.textContent = K.felt; });
   const active = st.builds[cfg.active];
   $('#cap-builds').innerHTML = !st.builds.length ? '<div class="dim">No Cyberpunk 2077 install found yet. Settings → <b>Find game installs</b>, or <b>Add a build</b> with the game folder.</div>' : st.builds.map(b => `<div class="build ${b.index === cfg.active ? 'on' : ''}" data-build="${b.index}">
       <div class="name">${esc(b.name)}</div><small>${esc(b.path)}</small><div class="tags">${buildTags(b)}</div></div>`).join('');
   $('#cap-layers').innerHTML = layerRows(st, active);
 
   const c = st.capture;
-  const [big, sub] = STATE_TEXT[c.state] || [c.state, ''];
+  const [big, sub0] = STATE_TEXT[c.state] || [c.state, ''];
+  const sub = sub0.replace(/\{mark\}/g, K.mark).replace(/\{felt\}/g, K.felt);
   $('#cap-state').innerHTML = `<div class="bigstate">${esc(big)}${c.title ? ' <span class="dim" style="font-size:13px;font-weight:400">· ' + esc(c.title) + '</span>' : ''}</div>
       <div class="dim">${esc(c.error || sub)}</div>`;
   const busy = ['arming', 'finishing'].includes(c.state);
@@ -228,7 +236,7 @@ function renderCapture() {
   else if (armed) btn = `<button class="btn2" data-act="disarm" ${st.game.running ? 'disabled title="Quit the game: the session finishes and cleans up by itself"' : ''}>Cancel and remove</button>`;
   else if (c.state === 'error') btn = `<button class="btn2" data-act="disarm">Try removing again</button><button class="btn2" data-act="reset">Clear</button>`;
   else btn = `<button class="btn" data-act="arm" ${busy || st.game.running || !active || !active.exists ? 'disabled' : ''}>● Start session</button>
-      ${st.game.running ? '<span class="dim small">Close the game to start a session.</span>' : '<span class="dim small">In game: F11 = mark a part (script time per mod), F10 = "I felt a stutter"</span>'}`;
+      ${st.game.running ? '<span class="dim small">Close the game to start a session.</span>' : '<span class="dim small">In game: ' + esc(K.mark) + ' = mark a part (script time per mod), ' + esc(K.felt) + ' = "I felt a stutter"</span>'}`;
   const bEl = $('#cap-buttons');
   if (bEl.dataset.html !== btn) { bEl.innerHTML = btn; bEl.dataset.html = btn; }
   const stepNo = { idle: 0, arming: 0, waiting: 1, running: 1, recording: c.focus ? 2 : 1, finishing: 4, done: 5, error: -1 }[c.state];
@@ -246,7 +254,7 @@ function renderCapture() {
     const vr = h.vram_budget ? `${fmt.mb(h.vram_usage / 1048576)} / ${fmt.mb(h.vram_budget / 1048576)}` : '–';
     const over = h.vram_budget && h.vram_usage > h.vram_budget;
     live += '<div class="kpi">' + k('game loop', fps ? fps.toFixed(0) + ' fps' : '–', 'last frame ' + fmt.ms(h.last_frame_ms)) +
-      (h.capture_mode === 2 ? k('F11 mark', h.capturing ? 'on' : 'off', 'recording the whole run', h.capturing ? 'warn' : 'good') : k('recording', h.capturing ? 'yes' : 'no', h.capture_mode === 1 ? 'F11 toggles' : 'always on', h.capturing ? 'good' : '')) +
+      (h.capture_mode === 2 ? k(esc(K.mark) + ' mark', h.capturing ? 'on' : 'off', 'recording the whole run', h.capturing ? 'warn' : 'good') : k('recording', h.capturing ? 'yes' : 'no', h.capture_mode === 1 ? esc(K.mark) + ' toggles' : 'always on', h.capturing ? 'good' : '')) +
       k('spikes', h.spikes, '≥ ' + cfg.spike_ms + ' ms', h.spikes > 0 ? 'warn' : '') + k('VRAM (game)', vr, 'used / budget', over ? 'bad' : '') + '</div>';
   } else if (st.game.running) {
     live += '<div class="dim">Game running. No HitchRecorder data yet (still loading, or no session set up).</div>';
@@ -304,6 +312,7 @@ async function loadSessions() {
     root.addEventListener('click', onSessionsClick);
   }
   try { S.sessions = (await api('sessions')) || []; } catch (e) { toast(e.message, true); S.sessions = []; }
+  if (S.curId && !S.sessions.some(s => s.id === S.curId)) { S.curId = null; S.cur = null; } // removed (cancelled / deleted)
   if (!S.curId && S.sessions.length) S.curId = S.sessions[0].id;
   renderSessionList();
   if (S.curId && (!S.cur || S.cur.meta.id !== S.curId)) openSession(S.curId);
@@ -325,7 +334,9 @@ async function openSession(id, reanalyse) {
     S.cur = await api('session/' + encodeURIComponent(id) + (reanalyse ? '/analyse' : ''), reanalyse ? {} : undefined);
     renderReport($('#report'), S.cur, false);
   } catch (e) {
-    $('#report').innerHTML = '<div class="empty">This session could not be analysed: ' + esc(e.message) + '</div>';
+    // 2.31: a session with nothing usable in it still gets Open folder / Delete (before, it could not be removed from here)
+    $('#report').innerHTML = '<div class="empty">This session could not be analysed: ' + esc(e.message) +
+      '<div style="margin-top:12px;display:flex;gap:8px;justify-content:center"><button class="btn2 small" data-sact="open">Open folder</button><button class="btn2 small" data-sact="delete">Delete</button></div></div>';
   }
 }
 
@@ -360,13 +371,13 @@ async function onSessionsClick(e) {
 }
 
 /* ------------------------------------------------------------------ report */
-function destroyCharts() { S.charts.forEach(c => c.destroy()); S.charts = []; }
+function destroyCharts() { S.charts.concat(S.lcharts || []).forEach(c => c.destroy()); S.charts = []; S.lcharts = []; }
 
 function kpiBox(l, v, s, cls) { return `<div class="k ${cls || ''}"><div class="l">${l}</div><div class="v">${v}</div>${s ? '<div class="s">' + s + '</div>' : ''}</div>`; }
 
 function renderReport(el, r, reportOnly) {
   destroyCharts();
-  const k = r.kpi, m = r.meta;
+  const k = r.kpi, m = r.meta, RK = repKeys(r);
   const lowCls = k.low1_fps && k.low1_fps < 40 ? 'bad' : k.low1_fps < 60 ? 'warn' : 'good';
   const vramCls = k.vram_budget_mb && k.vram_peak_mb > k.vram_budget_mb ? 'bad' : '';
   const seen = new Set((r.spikes || []).map(s => s.group));
@@ -392,8 +403,11 @@ function renderReport(el, r, reportOnly) {
       ${kpiBox('GPU temp max', k.gpu_temp_max ? k.gpu_temp_max.toFixed(0) + ' °C' : '–', k.throttle_serious ? 'slowed by: ' + esc(k.throttle) : k.throttle ? 'ran into its power limit (normal at full load)' : k.slowdown_known !== false ? 'no slowdown seen' : k.gpu_temp_max ? 'slowdown reasons: NVIDIA cards only' : 'not given by this card', k.throttle_serious ? 'warn' : '')}
     </div>
     ${adviceHtml(r, reportOnly)}
-    <div class="card chart-card"><div class="chart-top"><div class="legend"><span><i style="background:${css('--accent')}"></i>frame time</span>${hasGpu ? `<span><i style="background:${css('--orange')}"></i>GPU busy</span>` : '<span class="dimmer" title="PresentMon could not tell GPU time apart with frame generation on">GPU busy: not recorded (frame generation)</span>'}${legend}${(r.timeline.not_playing || []).length ? '<span><i style="background:rgba(150,150,145,0.45)"></i>loading / menu (left out)</span>' : ''}${(r.timeline.focus || []).length ? '<span><i style="background:rgba(47,196,185,0.35)"></i>F11 marked</span>' : ''}${(r.timeline.resets || []).some(x => x.playing) ? `<span><i style="background:${css('--c-reset')}"></i>screen reset</span>` : ''}</div><button class="btn2 small" id="ch-all" style="display:none">Show all</button></div>
-      <div class="readout" id="ch-read">Drag across any chart to zoom in · double-click or <b>Show all</b> to zoom out · click a spike bar for its details · move the mouse over a chart to read the values here</div><div id="ch-main"></div></div>
+    <div class="card chart-card"><div class="chart-top"><div class="legend"><span><i style="background:${css('--accent')}"></i>frame time</span>${hasGpu ? `<span><i style="background:${css('--orange')}"></i>GPU busy</span>` : '<span class="dimmer" title="PresentMon could not tell GPU time apart with frame generation on">GPU busy: not recorded (frame generation)</span>'}${legend}${(r.timeline.not_playing || []).length ? '<span><i style="background:rgba(150,150,145,0.45)"></i>loading / menu (left out)</span>' : ''}${(r.timeline.focus || []).length ? '<span><i style="background:rgba(47,196,185,0.35)"></i>${esc(RK.mark)} marked</span>' : ''}${(r.timeline.resets || []).some(x => x.playing) ? `<span><i style="background:${css('--c-reset')}"></i>screen reset</span>` : ''}</div><button class="btn2 small" id="ch-all" style="display:none">Show all</button></div>
+      <div class="readout" id="ch-read">Drag across any chart to zoom in · double-click or <b>Show all</b> to zoom out · click a spike bar for its details · move the mouse over a chart to read the values here · the corner button opens a chart larger, to zoom with the mouse wheel and move it by dragging</div><div id="ch-main"></div></div>
+    <div class="grid2" style="grid-template-columns:1.7fr 1fr"><div class="card chart-card"><div class="legend"><span><i style="background:${css('--accent')}"></i>frame time at each percentile: the L-shape (play only, loading and menus left out)</span></div>
+      <div class="readout" id="ls-read">Flat and low is smooth. Where the line turns up shows how many frames were slow and by how much: the right end is the slowest 1 in 10,000.</div><div id="ch-lshape"></div></div>
+      <div class="card"><h2>Percentiles</h2><div id="r-pct"></div></div></div>
     <div class="grid3" style="grid-template-columns:1fr 1fr 1fr"><div class="card chart-card"><div class="legend"><span><i style="background:#8cc4ff"></i>VRAM used by the game</span><span><i style="background:${css('--red')}"></i>budget</span>${(r.timeline.vram_others_mb || []).length ? '<span><i style="background:#f0a6ff"></i>everything else on the card (right axis)</span>' : ''}</div><div id="ch-vram"></div></div>
       <div class="card chart-card"><div class="legend">${(r.timeline.clock_mhz || []).length ? '<span><i style="background:#c3a6ff"></i>GPU clock (MHz)</span>' : ''}${(r.timeline.temp_c || []).length ? '<span><i style="background:#ff9a6b"></i>GPU temp (°C)</span>' : ''}${!(r.timeline.clock_mhz || []).length || !(r.timeline.temp_c || []).length ? '<span class="dimmer">' + [(r.timeline.clock_mhz || []).length ? '' : 'clock', (r.timeline.temp_c || []).length ? '' : 'temperature'].filter(Boolean).join(' and ') + ': not given by this card</span>' : ''}</div><div id="ch-gpu"></div></div>
       <div class="card chart-card"><div class="legend"><span><i style="background:${css('--amber')}"></i>disk reads (MB/s)</span><span><i style="background:#7ee0c8"></i>game CPU (%)</span><span><i style="background:#ff9aa8"></i>other apps on GPU (%)</span></div><div id="ch-pc"></div></div></div>
@@ -421,7 +435,7 @@ function renderReport(el, r, reportOnly) {
   // spikes list
   const sp = r.spikes || [];
   $('#r-spikes', el).innerHTML = sp.length ? `<table><tr><th>#</th><th>time</th><th class="n">frame</th><th>cause</th><th></th></tr>${sp.map(s => `<tr class="click" data-spike="${s.id}">
-      <td class="dim">${s.id}</td><td>${fmt.t(s.t)}</td><td class="n">${fmt.ms(s.ms)}</td><td><span class="swatch" style="background:${gcol(s.group)}"></span>${esc(s.cause)}</td><td>${s.focus ? '<span class="tag y" title="inside a part you marked with F11">F11</span>' : ''}${s.near_mark ? '<span title="you pressed the marker key near this">★</span>' : ''}</td></tr>`).join('')}</table>` : '<div class="dim">None.</div>';
+      <td class="dim">${s.id}</td><td>${fmt.t(s.t)}</td><td class="n">${fmt.ms(s.ms)}</td><td><span class="swatch" style="background:${gcol(s.group)}"></span>${esc(s.cause)}</td><td>${s.focus ? '<span class="tag y" title="inside a part you marked with ' + esc(RK.mark) + '">' + esc(RK.mark) + '</span>' : ''}${s.near_mark ? '<span title="you pressed the marker key near this">★</span>' : ''}</td></tr>`).join('')}</table>` : '<div class="dim">None.</div>';
   $('#r-spikes', el).onclick = (e) => { const tr = e.target.closest('[data-spike]'); if (tr) selectSpike(el, r, +tr.dataset.spike); };
   if (sp.length) selectSpike(el, r, (S.spikeSel && sp.find(s => s.id === S.spikeSel)) ? S.spikeSel : sp.slice().sort((a, b) => b.ms - a.ms)[0].id);
   else $('#r-detail', el).innerHTML = '<h2>Spike detail</h2><div class="dim">No spikes.</div>';
@@ -455,6 +469,8 @@ function renderReport(el, r, reportOnly) {
   $('#r-warn', el).innerHTML = (w.length ? '<ul class="warnlist">' + w.map(x => '<li>' + esc(x) + '</li>').join('') + '</ul>' : '<div class="dim">Nothing unusual.</div>') +
     '<div class="dimmer small" style="margin-top:10px">Causes are worked out from what overlapped each slow frame. They are strong hints, not proof: a stall can also come from work none of the layers can see.</div>';
 
+  $('#r-pct', el).innerHTML = pctTable(r);
+
   // charts
   const tok = S.repTok = (S.repTok || 0) + 1; // only the latest render draws (two quick renders drew every chart twice)
   setTimeout(() => { if (tok === S.repTok) { destroyCharts(); drawCharts(el, r); } }, 0);
@@ -471,7 +487,9 @@ function selectSpike(el, r, id) {
   const facts = [];
   if (s.gpu_ms >= 0) facts.push('GPU busy ' + fmt.ms(s.gpu_ms));
   if (s.budget_mb) facts.push(`VRAM ${fmt.mb(s.vram_mb)} / ${fmt.mb(s.budget_mb)}` + (s.vram_mb > s.budget_mb ? ' <b style="color:var(--red)">over</b>' : ''));
-  if (s.disk_mbs) facts.push('disk ' + s.disk_mbs.toFixed(0) + ' MB/s');
+  if (s.disk_mbs) facts.push('game reading ' + s.disk_mbs.toFixed(0) + ' MB/s');
+  if (s.read_max_ms) facts.push('longest disk read ' + fmt.ms(s.read_max_ms) + (s.read_max_ms >= 15 ? ' (slow)' : ''));
+  if (s.defender_mb) facts.push('Defender reading ' + s.defender_mb.toFixed(0) + ' MB');
   if (s.cpu_pct) facts.push('game CPU ' + s.cpu_pct.toFixed(0) + '% (busiest core ' + s.max_core_pct.toFixed(0) + '%)');
   if (s.throttle) facts.push('GPU slowed by ' + esc(s.throttle));
   if (s.other_gpu) facts.push('other app on GPU: ' + esc(s.other_gpu));
@@ -482,11 +500,11 @@ function selectSpike(el, r, id) {
   if (s.ram_free_mb && s.ram_free_mb < 2048) facts.push('free system RAM ' + fmt.n(s.ram_free_mb) + ' MB');
   if (s.reset && s.after_reset) facts.push('while the extra memory from the screen reset at ' + esc(s.reset.split(': ')[0]) + ' was still held');
   $('#r-detail', el).innerHTML = `<h2>Spike ${s.id} · ${fmt.t(s.t)} · ${fmt.ms(s.ms)}${s.frames > 1 ? ' · ' + s.frames + ' frames' : ''}</h2>
-    <div><span class="swatch" style="background:${gcol(s.group)}"></span><b style="color:var(--white)">${esc(s.cause)}</b>${s.focus ? ' <span class="tag y">in your F11 mark</span>' : ''}${s.near_mark ? ' <span class="tag y">★ near your marker</span>' : ''}</div>
+    <div><span class="swatch" style="background:${gcol(s.group)}"></span><b style="color:var(--white)">${esc(s.cause)}</b>${s.focus ? ' <span class="tag y">in your ' + esc(repKeys(r).mark) + ' mark</span>' : ''}${s.near_mark ? ' <span class="tag y">★ near your marker</span>' : ''}</div>
     <div class="verdict">${esc(s.verdict)}</div>
     <table style="margin-top:8px">${parts}</table>
     ${items ? '<h2 style="margin-top:10px">Biggest single items</h2><table>' + items + '</table>' : ''}
-    ${(s.win || []).length ? '<h2 style="margin-top:10px">Windows at that moment</h2><table>' + s.win.map(w => `<tr><td class="dim">${w.kind === 'driver' ? 'driver' : w.kind === 'paging' ? 'read back from disk' : 'disk'}</td><td>${esc(w.name)}${w.what ? ' <span class="dimmer">' + esc(w.what) + '</span>' : ''}</td><td class="n">${w.kind === 'driver' ? fmt.ms(w.ms) + ' (longest ' + fmt.ms(w.max_ms) + ')' : w.kind === 'paging' ? w.count + ' faults · ' + (w.mb || 0).toFixed(1) + ' MB · ' + fmt.ms(w.ms) : (w.mb || 0).toFixed(1) + ' MB'}</td></tr>`).join('') + '</table>' : ''}
+    ${(s.win || []).length ? '<h2 style="margin-top:10px">Windows at that moment</h2><table>' + s.win.map(w => `<tr><td class="dim">${w.kind === 'driver' ? 'driver' : w.kind === 'paging' ? 'read back from disk' : 'disk'}</td><td>${esc(w.name)}${w.what ? ' <span class="dimmer">' + esc(w.what) + '</span>' : ''}</td><td class="n">${w.kind === 'driver' ? fmt.ms(w.ms) + ' (longest ' + fmt.ms(w.max_ms) + ')' : w.kind === 'paging' ? w.count + ' faults · ' + (w.mb || 0).toFixed(1) + ' MB · ' + fmt.ms(w.ms) : (w.mb || 0).toFixed(1) + ' MB' + (w.max_ms ? ' · longest read ' + fmt.ms(w.max_ms) : '')}</td></tr>`).join('') + '</table>' : ''}
     ${facts.length ? '<div class="dim small" style="margin-top:8px">' + facts.join(' · ') + '</div>' : ''}
     ${REPORT ? '' : `<div class="trace-row"><button class="btn2 small" id="r-trace">Timeline of these 6 seconds (Perfetto)</button><span class="dim small" id="r-trace-msg">every game thread, millisecond by millisecond</span></div>`}`;
   const tb = $('#r-trace', el);
@@ -524,7 +542,7 @@ function renderModTable(el, mods, limit) {
     ${rows.map(m => `<tr><td>${esc(m.name)}${m.note ? '<div class="dimmer small">' + esc(m.note) + '</div>' : ''}</td><td class="dim">${esc((m.kinds || []).join(', '))}</td>
       <td class="n">${m.redscript_ms_per_s ? m.redscript_ms_per_s.toFixed(2) : '–'}</td><td class="n">${m.cet_ms_per_s ? m.cet_ms_per_s.toFixed(2) : '–'}</td>
       <td class="n">${m.files_loaded ? fmt.n(m.files_loaded) : '–'}</td><td class="n">${m.in_spikes || '–'}</td></tr>`).join('')}</table>` :
-    '<div class="dim">No per-mod data in this session (no F11 part marked or script time off, no mod files loaded).</div>';
+    '<div class="dim">No per-mod data in this session (no part marked with ' + esc(repKeys(REPORT || S.cur).mark) + ' or script time off, no mod files loaded).</div>';
 }
 
 function drawCharts(el, r) {
@@ -538,8 +556,8 @@ function drawCharts(el, r) {
   // a drag has to be at least 10 px to zoom, so a click (which often moves a pixel) never zooms in by accident
   const tFull = [Math.min(...[tl.t, tl.vram_t, tl.samp_t].filter(a => a && a.length).map(a => a[0])), Math.max(...[tl.t, tl.vram_t, tl.samp_t].filter(a => a && a.length).map(a => a[a.length - 1]))];
   const at = (ts, vs, t) => { if (!ts || !ts.length || !vs) return null; let lo = 0, hi = ts.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (ts[m] < t) lo = m + 1; else hi = m; } if (lo > 0 && Math.abs(ts[lo - 1] - t) < Math.abs(ts[lo] - t)) lo--; return Math.abs(ts[lo] - t) > 2 ? null : vs[lo]; };
-  const readout = (t) => {
-    const box = $('#ch-read', el);
+  const readout = (t, into) => {
+    const box = into || $('#ch-read', el);
     if (!box || t == null || !isFinite(t)) return;
     const f = at(tl.t, tl.frame_ms, t), g = at(tl.t, tl.gpu_ms, t), vr = at(tl.vram_t, tl.vram_mb, t), ck = at(tl.samp_t, tl.clock_mhz, t), tc = at(tl.samp_t, tl.temp_c, t),
       pw = at(tl.samp_t, tl.power_w, t), dk = at(tl.samp_t, tl.disk_mbs, t), cp = at(tl.samp_t, tl.cpu_pct, t), og = at(tl.samp_t, tl.other_gpu_pct, t);
@@ -565,7 +583,7 @@ function drawCharts(el, r) {
     const rs = (tl.resets || []).find(x => Math.abs(x.t - t) < Math.max(0.5, (S.mainChart ? (S.mainChart.scales.x.max - S.mainChart.scales.x.min) / 300 : 1)));
     if (rs) parts.push('<span style="color:var(--c-reset)">screen reset ' + esc(rs.clock) + '</span>');
     if (inList(tl.not_playing)) parts.push('<span class="dimmer">loading / menu</span>');
-    if (inList(tl.focus)) parts.push('<span style="color:var(--accent)">F11 mark</span>');
+    if (inList(tl.focus)) parts.push('<span style="color:var(--accent)">' + esc(repKeys(r).mark) + ' mark</span>');
     box.innerHTML = parts.join(' · ');
   };
   const zoomed = (u) => { const b = $('#ch-all', el); if (b) b.style.display = (u.scales.x.max - u.scales.x.min) < (tFull[1] - tFull[0]) * 0.98 ? '' : 'none'; };
@@ -602,14 +620,14 @@ function drawCharts(el, r) {
     const yMax = Math.min(Math.max(60, maxF * 1.08), 400);
     const gpu = tl.gpu_ms.map(v => v < 0 ? null : v);
     const spikes = r.spikes || [];
-    const u = new uPlot({
-      width: W, height: 300, cursor, scales: { x: { time: false }, y: { range: (u, lo, hi) => [0, Math.min(Math.max(40, (hi || 0) * 1.12), yMax)] } }, axes: axes('ms'),
+    const mainOpts = (w, h, view) => ({
+      width: w, height: h, cursor: view ? VIEW_CURSOR() : cursor, scales: { x: { time: false }, y: { range: (u, lo, hi) => [0, Math.min(Math.max(40, (hi || 0) * 1.12), yMax)] } }, axes: axes('ms'),
       series: [{}, { label: 'frame', stroke: css('--accent'), width: 1.2, points: { show: false } },
         { label: 'GPU', stroke: css('--orange'), width: 1, points: { show: false } }],
       hooks: {
         drawClear: [shadeGaps],
-        setCursor: hooksAll.setCursor,
-        setScale: hooksAll.setScale,
+        setCursor: view ? [(u) => { if (u.cursor.left >= 0) readout(u.posToVal(u.cursor.left, 'x'), view.read); }] : hooksAll.setCursor,
+        setScale: view ? [] : hooksAll.setScale,
         draw: [(u) => {
           const c = u.ctx;
           c.save();
@@ -627,25 +645,51 @@ function drawCharts(el, r) {
           c.restore();
         }],
       },
-    }, [tl.t, fr, gpu], $('#ch-main', el));
-    u.over.addEventListener('click', () => {
+    });
+    const spikeAt = (u) => {
       const t = u.posToVal(u.cursor.left, 'x');
       let best = null, bd = 1e9;
       spikes.forEach(s => { const d = Math.abs(s.t - t); if (d < bd) { bd = d; best = s; } });
       const span = u.scales.x.max - u.scales.x.min;
-      if (best && bd < span / 50) selectSpike(el, r, best.id);
-    });
+      return best && bd < span / 50 ? best : null;
+    };
+    const u = new uPlot(mainOpts(W, 300), [tl.t, fr, gpu], $('#ch-main', el));
+    u.over.addEventListener('click', () => { const s = spikeAt(u); if (s) selectSpike(el, r, s.id); });
     sync.sub(u);
     S.charts.push(u);
     S.mainChart = u;
+    addExpand($('#ch-main', el), {
+      title: 'Frame time', legend: $('.chart-top .legend', el), xFull: tFull, minSpan: 0.05, yKeys: ['y'],
+      from: () => [u.scales.x.min, u.scales.x.max],
+      build: (host, w, h, view) => {
+        const v = new uPlot(mainOpts(w, h, view), [tl.t, fr, gpu], host);
+        v.over.addEventListener('click', () => {
+          if (v.flMoved) return;
+          const s = spikeAt(v);
+          if (!s) return;
+          selectSpike(el, r, s.id);
+          view.read.innerHTML = '<b>Spike ' + s.id + '</b> · ' + fmt.t(s.t) + ' · ' + fmt.ms(s.ms) + ' · <span class="swatch" style="background:' + gcol(s.group) + '"></span>' + esc(s.cause) + ' <span class="dimmer">(details are under the charts when you close this)</span>';
+        });
+        return v;
+      },
+    });
   } else $('#ch-main', el).innerHTML = '<div class="empty">No frame data.</div>';
   const small = (id, data, series, scales, axesDef) => {
     const host = $(id, el);
     if (!data[0] || !data[0].length) { host.innerHTML = '<div class="empty" style="padding:20px">Not recorded.</div>'; return; }
+    const keep = dupOpts({ series, scales, axesDef }); // the viewer builds its own chart from this copy (uPlot changes the objects it gets)
     const w = Math.max(250, host.clientWidth - 4);
     const u = new uPlot({ width: w, height: 150, cursor, scales: Object.assign({ x: { time: false } }, scales), axes: axesDef, series: [{}].concat(series), hooks: { drawClear: [shadeGaps], setCursor: hooksAll.setCursor, setScale: hooksAll.setScale } }, data, host);
     sync.sub(u);
     S.charts.push(u);
+    const card = host.closest('.card');
+    addExpand(host, {
+      title: card && $('.legend span', card) ? $('.legend span', card).textContent.trim() : '', legend: card ? $('.legend', card) : null,
+      xFull: tFull, minSpan: 0.2, yKeys: Object.keys(scales).filter(k => k !== 'x').concat(Object.keys(scales).includes('y') ? [] : ['y']),
+      from: () => [u.scales.x.min, u.scales.x.max],
+      build: (vh, vw, hh, view) => { const o = dupOpts(keep); return new uPlot({ width: vw, height: hh, cursor: VIEW_CURSOR(), scales: Object.assign({ x: { time: false } }, o.scales), axes: o.axesDef, series: [{}].concat(o.series),
+        hooks: { drawClear: [shadeGaps], setCursor: [(v) => { if (v.cursor.left >= 0) readout(v.posToVal(v.cursor.left, 'x'), view.read); }] } }, data, vh); },
+    });
   };
   const ax2 = (l1, l2) => [{ stroke: axisStroke, font: axFont, labelFont: axFont, grid, ticks: grid, values: tvals },
     { stroke: axisStroke, font: axFont, labelFont: axFont, grid, ticks: grid, label: l1, size: 50, scale: 'a' }, { side: 1, stroke: axisStroke, font: axFont, labelFont: axFont, grid: { show: false }, label: l2, size: 54, scale: 'b' }];
@@ -693,6 +737,218 @@ function drawCharts(el, r) {
   const btn = $('#ch-all', el);
   if (btn) btn.onclick = showAll;
   S.charts.forEach(u => u.over.addEventListener('dblclick', showAll));
+  // 2.5: the L-shape (own x axis: not zoomed or synced with the time charts)
+  const lh = $('#ch-lshape', el);
+  if (lh) {
+    const lu = lshapeChart(lh, [{ label: 'frame time', color: css('--accent'), pts: r.lshape }], Math.max(300, lh.clientWidth - 4), 230,
+      (i, p, vals) => { const box = $('#ls-read', el); if (box) box.innerHTML = lsHead(p) + ': <b>' + fmt.ms(vals[0]) + '</b>' + (vals[0] > 0 ? ' (' + (1000 / vals[0]).toFixed(0) + ' fps)' : ''); });
+    if (lu) {
+      (S.lcharts = S.lcharts || []).push(lu); // not in S.charts: those share the time axis
+      addExpand(lh, { title: 'L-shape: frame time at each percentile', legend: lh.closest('.card') && $('.legend', lh.closest('.card')), xFull: [lsx(0), lsx(99.99)], minSpan: 0.05, yKeys: ['y'],
+        build: (vh, w, h, view) => lshapeChart(vh, [{ label: 'frame time', color: css('--accent'), pts: r.lshape }], w, h,
+          (i, p, vals) => { view.read.innerHTML = lsHead(p) + ': <b>' + fmt.ms(vals[0]) + '</b>' + (vals[0] > 0 ? ' (' + (1000 / vals[0]).toFixed(0) + ' fps)' : ''); }, true) });
+    } else lh.innerHTML = '<div class="empty" style="padding:20px">' + (REPORT ? 'Not in this report.' : 'Re-analyse this session to get the L-shape.') + '</div>';
+  }
+}
+
+/* ------------------------------------------------------------------ chart viewer (2.31) */
+// Every chart has an open-larger button. The larger chart zooms with the mouse wheel (time) or Ctrl + wheel
+// (height), moves when dragged, and goes back to the whole session on double-click or Reset.
+const VIEW_CURSOR = () => ({ drag: { x: false, y: false, setScale: false }, points: { size: 6 } });
+const dupOpts = (v) => Array.isArray(v) ? v.map(dupOpts) : (v && typeof v === 'object' && v.constructor === Object) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, dupOpts(x)])) : v;
+const CV = { u: null, opt: null, ctl: null };
+
+function addExpand(host, opt) {
+  if (!host) return;
+  const card = host.closest('.card') || host.parentElement;
+  if (!card) return;
+  const old = $('.cv-open', card);
+  if (old) old.remove();
+  const b = document.createElement('button');
+  b.className = 'cv-open';
+  b.title = 'Open larger: zoom in and out, move along the session';
+  b.setAttribute('aria-label', 'Open this chart larger');
+  b.innerHTML = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>';
+  b.onclick = (e) => { e.stopPropagation(); openChartView(opt); };
+  card.classList.add('has-cv');
+  card.appendChild(b);
+}
+
+function chartViewEl() {
+  let v = $('#chartview');
+  if (v) return v;
+  v = document.createElement('div');
+  v.id = 'chartview';
+  v.className = 'chartview hidden';
+  v.innerHTML = `<div class="cv-box" role="dialog" aria-modal="true" aria-label="Chart">
+    <div class="cv-top"><div class="cv-title"></div><div class="cv-tools">
+      <button class="btn2 small" data-cv="out" title="Zoom out (-)">&minus;</button><button class="btn2 small" data-cv="in" title="Zoom in (+)">+</button>
+      <button class="btn2 small" data-cv="left" title="Move left (&larr;)">&larr;</button><button class="btn2 small" data-cv="right" title="Move right (&rarr;)">&rarr;</button>
+      <button class="btn2 small" data-cv="reset" title="Whole session (0 or double-click)">Reset</button><button class="btn2 small" data-cv="close" title="Close (Esc)">Close</button></div></div>
+    <div class="legend cv-legend"></div><div class="readout cv-read"></div><div class="cv-host"></div>
+    <div class="cv-hint dimmer small">Mouse wheel: zoom in and out · drag: move · Ctrl + wheel: zoom the height · double-click or Reset: whole session · Esc: close</div></div>`;
+  document.body.appendChild(v);
+  v.addEventListener('mousedown', (e) => { if (e.target === v) closeChartView(); });
+  $$('[data-cv]', v).forEach(b => b.onclick = () => {
+    const a = b.dataset.cv, c = CV.ctl;
+    if (a === 'close') return closeChartView();
+    if (!c) return;
+    if (a === 'in') c.zoom(0.6); else if (a === 'out') c.zoom(1 / 0.6); else if (a === 'left') c.pan(-0.25); else if (a === 'right') c.pan(0.25); else if (a === 'reset') c.reset();
+  });
+  return v;
+}
+
+function openChartView(opt) {
+  const v = chartViewEl();
+  closeChartView(true);
+  v.classList.remove('hidden');
+  $('.cv-title', v).textContent = opt.title || '';
+  $('.cv-legend', v).innerHTML = opt.legend ? opt.legend.innerHTML : '';
+  const read = $('.cv-read', v);
+  read.innerHTML = '<span class="dimmer">Move the mouse over the chart to read the values.</span>';
+  const host = $('.cv-host', v);
+  host.innerHTML = '';
+  const size = () => [Math.max(320, host.clientWidth - 4), Math.max(220, Math.min(window.innerHeight - 260, 900))];
+  const [w, h] = size();
+  const u = opt.build(host, w, h, { read });
+  if (!u) { host.innerHTML = '<div class="empty">Nothing to show.</div>'; return; }
+  CV.u = u; CV.opt = opt;
+  CV.ctl = panZoom(u, opt);
+  const from = opt.from && opt.from();
+  if (from && isFinite(from[0]) && isFinite(from[1]) && (from[1] - from[0]) < (opt.xFull[1] - opt.xFull[0]) * 0.98) CV.ctl.setX(from[0], from[1]); // open at the same zoom as the page
+  CV.resize = () => { if (CV.u) { const [a, b] = size(); CV.u.setSize({ width: a, height: b }); } };
+  window.addEventListener('resize', CV.resize);
+}
+
+function closeChartView(quiet) {
+  const v = $('#chartview');
+  if (CV.u) { CV.u.destroy(); CV.u = null; }
+  if (CV.resize) window.removeEventListener('resize', CV.resize);
+  CV.ctl = null; CV.opt = null; CV.resize = null;
+  if (v && !quiet) v.classList.add('hidden');
+}
+
+document.addEventListener('keydown', (e) => {
+  const v = $('#chartview');
+  if (!v || v.classList.contains('hidden') || !CV.ctl) return;
+  if (e.target && /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  const k = e.key, c = CV.ctl;
+  if (k === 'Escape') closeChartView();
+  else if (k === '+' || k === '=') c.zoom(0.6);
+  else if (k === '-' || k === '_') c.zoom(1 / 0.6);
+  else if (k === 'ArrowLeft') c.pan(-0.15);
+  else if (k === 'ArrowRight') c.pan(0.15);
+  else if (k === '0' || k === 'Home') c.reset();
+  else return;
+  e.preventDefault();
+});
+
+// opt: xFull [min, max] of the data, minSpan (smallest x window), yKeys (scales the height zoom applies to)
+function panZoom(u, opt) {
+  const full = opt.xFull, over = u.over;
+  let yz = null; // { scale: [min, max] } once the height has been zoomed
+  const cur = () => [u.scales.x.min, u.scales.x.max];
+  const applyY = () => { if (yz) Object.entries(yz).forEach(([k, r]) => { if (u.scales[k]) u.setScale(k, { min: r[0], max: r[1] }); }); };
+  const setX = (a, b) => {
+    const whole = full[1] - full[0];
+    let span = Math.min(whole, Math.max(opt.minSpan || 0, b - a));
+    a = Math.max(full[0], Math.min(a, full[1] - span));
+    u.setScale('x', { min: a, max: a + span });
+    applyY();
+  };
+  const zoom = (f, at) => { const [a, b] = cur(); if (at == null) at = (a + b) / 2; setX(at - (at - a) * f, at + (b - at) * f); };
+  const pan = (frac) => { const [a, b] = cur(); const d = (b - a) * frac; setX(a + d, b + d); };
+  const zoomY = (f, fy) => {
+    yz = yz || {};
+    (opt.yKeys || ['y']).forEach(k => {
+      const s = u.scales[k];
+      if (!s || s.min == null || s.max == null) return;
+      const at = s.min + (s.max - s.min) * fy;
+      yz[k] = [at - (at - s.min) * f, at + (s.max - at) * f];
+    });
+    applyY();
+  };
+  const reset = () => { yz = null; u.setScale('x', { min: full[0], max: full[1] }); };
+  over.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rc = over.getBoundingClientRect(), f = e.deltaY > 0 ? 1.25 : 0.8;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) zoomY(f, 1 - (e.clientY - rc.top) / rc.height);
+    else zoom(f, u.posToVal(e.clientX - rc.left, 'x'));
+  }, { passive: false });
+  over.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const x0 = e.clientX, y0 = e.clientY, [a, b] = cur(), w = over.clientWidth, h = over.clientHeight;
+    const y0z = yz ? dupOpts(yz) : null;
+    u.flMoved = false;
+    over.classList.add('cv-grab');
+    const mv = (ev) => {
+      const dx = ev.clientX - x0, dy = ev.clientY - y0;
+      if (Math.abs(dx) + Math.abs(dy) > 3) u.flMoved = true;
+      if (!u.flMoved) return;
+      if (y0z) Object.entries(y0z).forEach(([k, r]) => { const d = dy / h * (r[1] - r[0]); yz[k] = [r[0] + d, r[1] + d]; });
+      const d = -dx / w * (b - a);
+      setX(a + d, b + d);
+    };
+    const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); over.classList.remove('cv-grab'); setTimeout(() => { u.flMoved = false; }, 0); };
+    window.addEventListener('mousemove', mv);
+    window.addEventListener('mouseup', up);
+  });
+  over.addEventListener('dblclick', reset);
+  return { zoom, pan, reset, setX };
+}
+
+/* ------------------------------------------------------------------ L-shape (2.5) */
+// x = -log10(100 - percentile): 0 / 90 / 99 / 99.9 / 99.99 sit evenly apart, so the slow end gets room
+const lsx = (p) => -Math.log10(Math.max(0.01, 100 - p));
+const LS_TICKS = [[0, '0'], [90, '90'], [99, '99'], [99.9, '99.9'], [99.99, '99.99']];
+const lsHead = (p) => { const rest = +(100 - p).toFixed(3); return p === 0 ? '<b>fastest frame</b>' : `<b>${p}th percentile</b> · ${rest}% of frames took longer than`; };
+
+// sets: [{label, color, dash, pts: [[percentile, ms], ...]}]; onHover(index, percentile, [ms per set])
+function lshapeChart(host, sets, width, height, onHover, free) { // free: the chart viewer zooms and moves it
+  const base = sets.find(x => x.pts && x.pts.length);
+  if (!base) return null;
+  const pcts = base.pts.map(q => q[0]);
+  const xs = pcts.map(lsx);
+  const ys = sets.map(x => { const m = new Map((x.pts || []).map(q => [q[0], q[1]])); return pcts.map(p => m.has(p) ? m.get(p) : null); });
+  const all = ys.flat().filter(v => v != null);
+  const yTop = Math.min(Math.max(20, Math.max(...all) * 1.08), 250);
+  const axisStroke = css('--dim'), grid = { stroke: '#2a2c2f', width: 1 }, axFont = '12px Inter, "Segoe UI", Arial, sans-serif';
+  const u = new uPlot({
+    width, height, legend: { show: false },
+    cursor: { drag: { x: false, y: false, setScale: false }, points: { size: 7 } },
+    scales: free ? { x: { time: false }, y: { range: () => [0, yTop] } } : { x: { time: false, range: [lsx(0), lsx(99.99)] }, y: { range: [0, yTop] } },
+    axes: [{ stroke: axisStroke, font: axFont, labelFont: axFont, grid, ticks: grid, label: 'percentile of frames (slowest on the right)', labelSize: 20,
+      splits: () => LS_TICKS.map(t => lsx(t[0])), values: (u, v) => v.map(x => { const t = LS_TICKS.find(t => Math.abs(lsx(t[0]) - x) < 1e-6); return t ? t[1] : ''; }) },
+    { stroke: axisStroke, font: axFont, labelFont: axFont, grid, ticks: grid, label: 'ms', size: 50 }],
+    series: [{}].concat(sets.map(x => ({ label: x.label, stroke: x.color, width: 2, dash: x.dash || undefined, points: { show: false }, spanGaps: true }))),
+    hooks: {
+      draw: [(u) => {
+        const c = u.ctx;
+        c.save();
+        [16.7, 33.3, 50].forEach(v => {
+          if (v > yTop) return;
+          const y = u.valToPos(v, 'y', true);
+          c.strokeStyle = 'rgba(255,255,255,0.10)'; c.setLineDash([3, 3]); c.lineWidth = 1;
+          c.beginPath(); c.moveTo(u.bbox.left, y); c.lineTo(u.bbox.left + u.bbox.width, y); c.stroke();
+        });
+        c.restore();
+      }],
+      setCursor: [(u) => { const i = u.cursor.idx; if (i != null && onHover) onHover(i, pcts[i], ys.map(a => a[i])); }],
+    },
+  }, [xs].concat(ys), host);
+  return u;
+}
+
+// the percentiles people quote, from the L-shape
+function pctTable(r) {
+  const l = r.lshape || [];
+  if (!l.length) return '<div class="dim">' + (REPORT ? 'Not in this report.' : 'Re-analyse this session to get the percentiles.') + '</div>';
+  const at = (p) => { const q = l.find(x => Math.abs(x[0] - p) < 1e-9); return q ? q[1] : null; };
+  const rows = [[50, 'median', 'half the frames'], [90, '', '1 in 10'], [95, '', '1 in 20'], [99, '1% low', '1 in 100'], [99.9, '0.1% low', '1 in 1,000'], [99.99, '0.01% low', '1 in 10,000']];
+  return `<table><tr><th>percentile</th><th></th><th class="n">frame time</th><th class="n">fps</th><th class="n">slower</th></tr>${rows.map(([p, name, one]) => {
+    const v = at(p);
+    return `<tr><td class="n" style="text-align:left">${p}</td><td class="dim">${name}</td><td class="n">${fmt.ms(v)}</td><td class="n">${v > 0 ? (1000 / v).toFixed(0) : '–'}</td><td class="n dim">${one}</td></tr>`;
+  }).join('')}</table><div class="dimmer small" style="margin-top:8px">Frame time a given share of frames stayed under. "Slower" is how many frames took longer than that.</div>`;
 }
 
 window.addEventListener('resize', () => {
@@ -704,92 +960,144 @@ window.addEventListener('resize', () => {
 });
 
 /* ------------------------------------------------------------------ compare */
+// 2.5: up to six sessions side by side. The first one is the baseline every other one is measured
+// against; "What changed" goes step by step (each session against the one before it), which is how
+// a bisect reads. Colours are the six validated categorical slots; slots that are hard to tell apart
+// with colour-blindness also get a dash, and every line has its number in the legend and readout.
+const CMP_MAX = 6;
+const CMP_COL = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#9085e9'];
+const CMP_DASH = [null, null, null, [7, 4], [2, 3], [7, 4]];
+const cmpSw = (i) => `<svg width="24" height="10" style="vertical-align:-1px" aria-hidden="true"><line x1="1" y1="5" x2="23" y2="5" stroke="${CMP_COL[i]}" stroke-width="2.5" ${CMP_DASH[i] ? 'stroke-dasharray="' + CMP_DASH[i].join(',') + '"' : ''}/></svg>`;
+const cmpTag = (i) => `<span class="cmp-n" style="border-color:${CMP_COL[i]}">${i + 1}</span>`;
+
+function cmpChanges(A, B) {
+  const out = [];
+  const ea = (A.meta.experiments || []), eb = (B.meta.experiments || []);
+  eb.filter(x => !ea.includes(x)).forEach(x => out.push('<div><span class="tag g">Experiments on</span> ' + esc(x) + '</div>'));
+  ea.filter(x => !eb.includes(x)).forEach(x => out.push('<div><span class="tag">Experiments off</span> ' + esc(x) + '</div>'));
+  if (A.meta.build && B.meta.build && A.meta.build !== B.meta.build) out.push(`<div><span class="tag y">other build</span> ${esc(A.meta.build)} → ${esc(B.meta.build)} (different mods and settings: this compares the two builds rather than one change)</div>`);
+  const sa = A.snapshot, sb = B.snapshot;
+  if (!sa || !sb) { out.push('<div class="dim">Mods and settings: needs both sessions recorded with Frame Lab 2.0 or newer.</div>'); return out.join(''); }
+  [['Game', 'game_version'], ['Graphics driver', 'driver'], ['Windows', 'windows']].forEach(([l, k]) => {
+    if (sa[k] && sb[k] && sa[k] !== sb[k]) out.push(`<div><span class="tag">${l}</span> ${esc(sa[k])} → ${esc(sb[k])}</div>`);
+  });
+  const ma = {}, mb = {};
+  (sa.mods || []).forEach(m => { ma[m.path] = m; });
+  (sb.mods || []).forEach(m => { mb[m.path] = m; });
+  const lst = (arr, tag, cls) => arr.slice(0, 30).map(p => `<div><span class="tag ${cls}">${tag}</span> ${esc(p)}</div>`).join('') + (arr.length > 30 ? `<div class="dimmer small">and ${arr.length - 30} more</div>` : '');
+  out.push(lst(Object.keys(mb).filter(p => !ma[p]), 'mod added', 'g'), lst(Object.keys(ma).filter(p => !mb[p]), 'mod removed', ''),
+    lst(Object.keys(mb).filter(p => ma[p] && (ma[p].size !== mb[p].size || ma[p].mtime !== mb[p].mtime)), 'mod updated', 'y'));
+  const setA = sa.settings || {}, setB = sb.settings || {};
+  Object.keys(setB).filter(k => k in setA && setA[k] !== setB[k]).slice(0, 30)
+    .forEach(k => out.push(`<div><span class="tag y">setting</span> ${esc(k.replace(/^\//, ''))}: ${esc(setA[k])} → ${esc(setB[k])}</div>`));
+  return out.join('') || '<div class="dim">Same game, driver, Windows, mods and game settings.</div>';
+}
+
 async function renderCompare() {
   const root = $('#tab-compare');
   if (!S.sessions.length) { try { S.sessions = (await api('sessions')) || []; } catch (e) { /* shown below */ } }
-  const opts = (sel) => S.sessions.filter(s => s.analysed).map(s => `<option value="${esc(s.id)}" ${s.id === sel ? 'selected' : ''}>${esc(s.title || s.id)} · ${esc(s.created)}</option>`).join('');
   const an = S.sessions.filter(s => s.analysed);
   if (an.length < 2) { root.innerHTML = '<div class="empty">Compare needs two analysed sessions (e.g. the same drive before and after a change).</div>'; return; }
-  if (!S.cmpA) S.cmpA = an[1].id;
-  if (!S.cmpB) S.cmpB = an[0].id;
-  root.innerHTML = `<div class="cmp-pick"><span class="dim">Before</span><select id="cmpA">${opts(S.cmpA)}</select><span class="dim">After</span><select id="cmpB">${opts(S.cmpB)}</select></div><div id="cmp-body"><div class="empty">Loading ...</div></div>`;
-  $('#cmpA').onchange = (e) => { S.cmpA = e.target.value; renderCompare(); };
-  $('#cmpB').onchange = (e) => { S.cmpB = e.target.value; renderCompare(); };
+  const have = new Set(an.map(s => s.id));
+  S.cmpIds = (S.cmpIds || []).filter(id => have.has(id)).slice(0, CMP_MAX);
+  if (S.cmpIds.length < 2) S.cmpIds = [an[1].id, an[0].id];
+  S.cmpHide = S.cmpHide || new Set();
+  const ids = S.cmpIds;
+  const opts = (sel) => an.map(s => `<option value="${esc(s.id)}" ${s.id === sel ? 'selected' : ''}>${esc(s.title || s.id)} · ${esc(s.created)}</option>`).join('');
+  root.innerHTML = `<div class="cmp-pick2">${ids.map((id, i) => `<div class="cmp-slot">${cmpSw(i)}${cmpTag(i)}<span class="dim small" style="width:58px">${i === 0 ? 'baseline' : ''}</span><select data-slot="${i}">${opts(id)}</select>${ids.length > 2 ? `<button class="btn2 small" data-rm="${i}" title="take out of the comparison">✕</button>` : ''}</div>`).join('')}
+    ${ids.length < CMP_MAX && an.length > ids.length ? '<button class="btn2 small" id="cmp-add">+ Add a session</button>' : ''}
+    <div class="dimmer small">Up to ${CMP_MAX}. The first is the baseline the others are measured against. Bisecting: add the sessions in the order you made them.</div></div><div id="cmp-body"><div class="empty">Loading ...</div></div>`;
+  $$('select[data-slot]', root).forEach(sel => sel.onchange = (e) => { S.cmpIds[+e.target.dataset.slot] = e.target.value; renderCompare(); });
+  $$('[data-rm]', root).forEach(b => b.onclick = () => { S.cmpIds.splice(+b.dataset.rm, 1); renderCompare(); });
+  const addB = $('#cmp-add', root);
+  if (addB) addB.onclick = () => { const next = an.find(s => !S.cmpIds.includes(s.id)); if (next) { S.cmpIds.push(next.id); renderCompare(); } };
   const get = async (id) => S.cmpData[id] || (S.cmpData[id] = await api('session/' + encodeURIComponent(id)));
-  let A, B;
-  try { [A, B] = await Promise.all([get(S.cmpA), get(S.cmpB)]); } catch (e) { $('#cmp-body').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; return; }
-  const row = (label, a, b, f, lowerBetter) => {
-    let cls = '';
-    if (a != null && b != null && isFinite(a) && isFinite(b) && a !== b) cls = (lowerBetter ? b < a : b > a) ? 'better' : 'worse';
-    const d = (a != null && b != null && isFinite(a) && isFinite(b)) ? (b - a) : null;
-    return `<tr><td>${label}</td><td class="n">${f(a)}</td><td class="n">${f(b)}</td><td class="n delta ${cls}">${d == null ? '' : (d > 0 ? '+' : '') + (Math.abs(d) >= 10 ? d.toFixed(0) : d.toFixed(1))}</td></tr>`;
+  let R;
+  try { R = await Promise.all(ids.map(get)); } catch (e) { $('#cmp-body').innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; return; }
+  if (S.cmpIds !== ids || S.tab !== 'compare') return; // changed while loading
+  (S.cmpCharts || []).forEach(u => u.destroy());
+  S.cmpCharts = [];
+  const n = R.length, A = R[0];
+  const head = (extra) => `<tr><th></th>${R.map((r, i) => `<th class="n" title="${esc(r.meta.title || r.meta.id)}">${cmpTag(i)}</th>`).join('')}${extra || ''}</tr>`;
+  const better = (d, lowerBetter) => d === 0 ? '' : (lowerBetter ? d < 0 : d > 0) ? 'better' : 'worse';
+  // value + change against the baseline
+  const cell = (v, base, f, lowerBetter, i) => {
+    if (v == null || !isFinite(v)) return '<td class="n dimmer">–</td>';
+    if (i === 0 || base == null || !isFinite(base) || base === 0) return `<td class="n">${f(v)}</td>`;
+    const pct = 100 * (v - base) / Math.abs(base);
+    const cls = Math.abs(pct) < 0.05 ? '' : better(v - base, lowerBetter);
+    return `<td class="n">${f(v)}<div class="delta ${cls} small">${pct > 0 ? '+' : ''}${pct.toFixed(1)}%</div></td>`;
   };
-  const ka = A.kpi, kb = B.kpi;
+  const metric = (label, get, f, lowerBetter) => { const vals = R.map(get); return `<tr><td>${label}</td>${vals.map((v, i) => cell(v, vals[0], f, lowerBetter, i)).join('')}</tr>`; };
   const perMin = (k) => k.duration_s ? k.spikes / (k.duration_s / 60) : null;
-  const ea = (A.meta.experiments || []), eb = (B.meta.experiments || []);
-  const added = eb.filter(x => !ea.includes(x)), removed = ea.filter(x => !eb.includes(x));
-  let html = (added.length || removed.length) ? `<div class="card" style="margin-bottom:12px"><h2>Experiments changed</h2>
-    ${added.map(x => '<div><span class="tag g">switched on</span> ' + esc(x) + '</div>').join('')}${removed.map(x => '<div><span class="tag">switched off</span> ' + esc(x) + '</div>').join('')}
-    ${added.length + removed.length > 1 ? '<div class="dimmer small" style="margin-top:6px">More than one setting changed between these sessions, so the difference can\'t be put on one of them.</div>' : ''}</div>` : '';
-  // 2.0: what changed between the two sessions (snapshot taken when each session started)
-  const sa = A.snapshot, sb = B.snapshot;
-  if (A.meta.build && B.meta.build && A.meta.build !== B.meta.build) html += `<div class="card" style="margin-bottom:12px"><h2>Different game builds</h2><div class="dim">Before is from ${esc(A.meta.build)}, after from ${esc(B.meta.build)}: different mods and settings, so this compares the two builds rather than one change.</div></div>`;
-  if (!sa || !sb) html += `<div class="card" style="margin-bottom:12px"><h2>What changed</h2><div class="dim">Needs both sessions recorded with Frame Lab 2.0 (it saves the versions, mods and game settings when a session starts).</div></div>`;
-  else {
-    const ch = [];
-    [['Game', 'game_version'], ['Graphics driver', 'driver'], ['Windows', 'windows']].forEach(([l, k]) => {
-      if (sa[k] && sb[k] && sa[k] !== sb[k]) ch.push(`<div><span class="tag">${l}</span> ${esc(sa[k])} → ${esc(sb[k])}</div>`);
-    });
-    const ma = {}, mb = {};
-    (sa.mods || []).forEach(m => { ma[m.path] = m; });
-    (sb.mods || []).forEach(m => { mb[m.path] = m; });
-    const addedM = Object.keys(mb).filter(p => !ma[p]), goneM = Object.keys(ma).filter(p => !mb[p]);
-    const updM = Object.keys(mb).filter(p => ma[p] && (ma[p].size !== mb[p].size || ma[p].mtime !== mb[p].mtime));
-    const lst = (arr, tag, cls) => arr.slice(0, 30).map(p => `<div><span class="tag ${cls}">${tag}</span> ${esc(p)}</div>`).join('') + (arr.length > 30 ? `<div class="dimmer small">and ${arr.length - 30} more</div>` : '');
-    const setA = sa.settings || {}, setB = sb.settings || {};
-    const setCh = Object.keys(setB).filter(k => k in setA && setA[k] !== setB[k]);
-    const body = ch.join('') + lst(addedM, 'mod added', 'g') + lst(goneM, 'mod removed', '') + lst(updM, 'mod updated', 'y') +
-      setCh.slice(0, 30).map(k => `<div><span class="tag y">setting</span> ${esc(k.replace(/^\//, ''))}: ${esc(setA[k])} → ${esc(setB[k])}</div>`).join('');
-    html += `<div class="card" style="margin-bottom:12px"><h2>What changed</h2>${body || '<div class="dim">Same game, driver, Windows, mods and game settings in both sessions.</div>'}</div>`;
-  }
-  // 2.0: is the difference bigger than the noise? (30 s stretches of play in each session)
-  const bstat = (bl, key) => { const v = (bl || []).map(b => b[key]).filter(x => isFinite(x) && x > 0); const n = v.length; if (n < 3) return null; const m = v.reduce((a, b) => a + b, 0) / n; const sd = Math.sqrt(v.reduce((a, b) => a + (b - m) * (b - m), 0) / (n - 1)); return { n, m, se: sd / Math.sqrt(n) }; };
-  const verdictLine = (label, a, b) => {
-    if (!a || !b) return '';
+  const lsAt = (r, p) => { const q = (r.lshape || []).find(x => Math.abs(x[0] - p) < 1e-9); return q ? q[1] : null; };
+  // noise check against the baseline (30 s stretches of play)
+  const bstat = (bl, key) => { const v = (bl || []).map(b => b[key]).filter(x => isFinite(x) && x > 0); const k = v.length; if (k < 3) return null; const m = v.reduce((a, b) => a + b, 0) / k; const sd = Math.sqrt(v.reduce((a, b) => a + (b - m) * (b - m), 0) / (k - 1)); return { m, se: sd / Math.sqrt(k) }; };
+  const verdict = (a, b) => {
+    if (!a || !b) return '<span class="dimmer">needs 90 s of play</span>';
     const d = b.m - a.m, se = Math.sqrt(a.se * a.se + b.se * b.se), t = se > 0 ? d / se : 0, pct = 100 * d / a.m;
-    if (Math.abs(t) < 2 || Math.abs(pct) < 2) return `<div>${label}: ${a.m.toFixed(1)} → ${b.m.toFixed(1)} ms, <b>within the normal run-to-run noise</b></div>`;
-    return `<div>${label}: ${a.m.toFixed(1)} → ${b.m.toFixed(1)} ms, <b class="delta ${d < 0 ? 'better' : 'worse'}">${d < 0 ? 'better' : 'worse'} by ${Math.abs(pct).toFixed(1)}%</b>, more than the noise between stretches</div>`;
+    if (Math.abs(t) < 2 || Math.abs(pct) < 2) return '<span class="dim">within noise</span>';
+    return `<b class="delta ${d < 0 ? 'better' : 'worse'}">${d < 0 ? 'better' : 'worse'} ${Math.abs(pct).toFixed(1)}%</b>`;
   };
-  const vm = verdictLine('Typical frame (median)', bstat(A.blocks, 'median_ms'), bstat(B.blocks, 'median_ms'));
-  const vp = verdictLine('Slow frames (1% low frame time)', bstat(A.blocks, 'p99_ms'), bstat(B.blocks, 'p99_ms'));
-  if (vm || vp) html += `<div class="card" style="margin-bottom:12px"><h2>Verdict</h2>${vm}${vp}<div class="dimmer small" style="margin-top:6px">Each session is cut into 30 s stretches of play; a change only counts when it is bigger than how much those stretches differ from each other. Same route and settings still matter.</div></div>`;
-  else html += `<div class="card" style="margin-bottom:12px"><h2>Verdict</h2><div class="dim">Needs at least 90 s of play in both sessions (recorded with Frame Lab 2.0).</div></div>`;
-  html += `<div class="grid2" style="margin-top:0"><div class="card"><h2>Overall</h2><table><tr><th></th><th class="n">before</th><th class="n">after</th><th class="n">change</th></tr>
-    ${row('median frame (ms)', ka.median_ms, kb.median_ms, v => fmt.p(v, 2), true)}
-    ${row('average fps', ka.avg_fps, kb.avg_fps, v => fmt.p(v, 0), false)}
-    ${row('1% low fps', ka.low1_fps, kb.low1_fps, v => fmt.p(v, 0), false)}
-    ${row('0.1% low fps', ka.low01_fps, kb.low01_fps, v => fmt.p(v, 0), false)}
-    ${row('spikes per minute', perMin(ka), perMin(kb), v => fmt.p(v, 2), true)}
-    ${row('stutter %', ka.stutter_pct, kb.stutter_pct, v => fmt.p(v, 2), true)}
-    ${row('frame time spread (ms)', ka.frame_sd_ms, kb.frame_sd_ms, v => fmt.p(v, 2), true)}
-    ${row('input lag (ms)', ka.input_lag_ms || null, kb.input_lag_ms || null, v => fmt.p(v, 1), true)}
-    ${row('GPU bound %', ka.gpu_bound_pct >= 0 ? ka.gpu_bound_pct : null, kb.gpu_bound_pct >= 0 ? kb.gpu_bound_pct : null, v => fmt.p(v, 0), true)}
-    ${row('VRAM peak (MB)', ka.vram_peak_mb || null, kb.vram_peak_mb || null, v => fmt.p(v, 0), true)}
-    ${row('script time (ms/s)', (ka.redscript_ms_per_s || 0) + (ka.cet_ms_per_s || 0), (kb.redscript_ms_per_s || 0) + (kb.cet_ms_per_s || 0), v => fmt.p(v, 1), true)}
-    </table><div class="dimmer small" style="margin-top:8px">Only a fair comparison when both runs cover the same route and settings.</div></div>`;
+  const vrow = (label, key) => { const a = bstat(A.blocks, key); return `<tr><td>${label}</td><td class="n dimmer">baseline</td>${R.slice(1).map(r => `<td class="n">${verdict(a, bstat(r.blocks, key))}</td>`).join('')}</tr>`; };
+
+  let html = `<div class="card chart-card"><div class="chart-top"><div class="legend" id="cmp-legend">${R.map((r, i) => `<span class="cmp-leg ${S.cmpHide.has(ids[i]) ? 'off' : ''}" data-leg="${i}" title="click to hide or show">${cmpSw(i)}${cmpTag(i)} ${esc(r.meta.title || r.meta.id)}${r.lshape ? '' : ' <span class="dimmer">(no L-shape: Re-analyse it, if its recording is still there)</span>'}</span>`).join('')}</div></div>
+    <div class="readout" id="cmp-read">The L-shape of each session: flat and low is smooth, the right end is the slowest frames. Move the mouse over the chart to read every session at one percentile; click a name to hide it.</div><div id="cmp-lshape"></div></div>`;
+  // fps bars: average, 1% low, 0.1% low
+  const bars = [['average', r => r.kpi.avg_fps], ['1% low', r => r.kpi.low1_fps], ['0.1% low', r => r.kpi.low01_fps]];
+  const bmax = Math.max(1, ...R.map(r => r.kpi.avg_fps || 0)) * 1.05;
+  html += `<div class="grid2" style="grid-template-columns:1fr 1.6fr"><div class="card"><h2>Frames per second</h2>${bars.map(([lab, f]) => `<div class="fbar-g"><div class="dim small">${lab}</div>${R.map((r, i) => { const v = f(r); return `<div class="fbar" title="${esc(r.meta.title || r.meta.id)}: ${v ? v.toFixed(1) : '–'} fps">${cmpTag(i)}<div class="fbar-t"><div style="width:${v ? Math.min(100, v / bmax * 100) : 0}%;background:${CMP_COL[i]}"></div></div><span class="n">${v ? v.toFixed(0) : '–'}</span></div>`; }).join('')}</div>`).join('')}
+    <div class="dimmer small" style="margin-top:6px">Play only (loading screens and menus left out).</div></div>`;
+  html += `<div class="card"><h2>Numbers <span class="dimmer small" style="text-transform:none;letter-spacing:0">change against the baseline</span></h2><div class="scroll-x"><table>${head()}
+    ${metric('median frame (ms)', r => r.kpi.median_ms, v => fmt.p(v, 2), true)}
+    ${metric('average fps', r => r.kpi.avg_fps, v => fmt.p(v, 0), false)}
+    ${metric('1% low fps', r => r.kpi.low1_fps, v => fmt.p(v, 0), false)}
+    ${metric('0.1% low fps', r => r.kpi.low01_fps, v => fmt.p(v, 0), false)}
+    ${metric('99.99th percentile (ms)', r => lsAt(r, 99.99), v => fmt.p(v, 1), true)}
+    ${metric('spikes per minute', r => perMin(r.kpi), v => fmt.p(v, 2), true)}
+    ${metric('stutter %', r => r.kpi.stutter_pct, v => fmt.p(v, 2), true)}
+    ${metric('frame time spread (ms)', r => r.kpi.frame_sd_ms, v => fmt.p(v, 2), true)}
+    ${metric('input lag (ms)', r => r.kpi.input_lag_ms || null, v => fmt.p(v, 1), true)}
+    ${metric('GPU bound %', r => r.kpi.gpu_bound_pct >= 0 ? r.kpi.gpu_bound_pct : null, v => fmt.p(v, 0), true)}
+    ${metric('VRAM peak (MB)', r => r.kpi.vram_peak_mb || null, v => fmt.p(v, 0), true)}
+    ${metric('script time (ms/s)', r => (r.kpi.redscript_ms_per_s || 0) + (r.kpi.cet_ms_per_s || 0), v => fmt.p(v, 1), true)}
+    ${vrow('typical frame vs noise', 'median_ms')}${vrow('slow frames vs noise', 'p99_ms')}
+    </table></div><div class="dimmer small" style="margin-top:8px">Only a fair comparison when the runs cover the same route and settings. "vs noise": each session is cut into 30 s stretches of play; a change counts when it is bigger than how much those stretches differ.</div></div></div>`;
+  // what changed, step by step
+  html += `<div class="card" style="margin-top:14px"><h2>What changed</h2>${R.slice(1).map((r, j) => `<div class="cmp-step"><div class="cmp-step-h">${cmpTag(j)} → ${cmpTag(j + 1)} <span class="dim">${esc(R[j].meta.title || R[j].meta.id)} → ${esc(r.meta.title || r.meta.id)}</span></div>${cmpChanges(R[j], r)}</div>`).join('')}</div>`;
+  // spike causes and mods
   const groups = Object.keys(GROUPS).filter(g => g !== 'other');
   const cnt = (r, g) => { const c = (r.causes || []).find(x => x.group === g); return c ? c.count : 0; };
-  html += `<div class="card"><h2>Spike causes</h2><table><tr><th></th><th class="n">before</th><th class="n">after</th><th class="n">change</th></tr>
-    ${groups.map(g => row('<span class="swatch" style="background:' + gcol(g) + '"></span>' + GROUPS[g].label, cnt(A, g), cnt(B, g), v => String(v), true)).join('')}</table></div></div>`;
+  const used = groups.filter(g => R.some(r => cnt(r, g) > 0));
+  html += `<div class="grid2"><div class="card"><h2>Spike causes</h2>${used.length ? `<table>${head()}${used.map(g => metric('<span class="swatch" style="background:' + gcol(g) + '"></span>' + GROUPS[g].label, r => cnt(r, g), v => String(v), true)).join('')}</table>` : '<div class="dim">No spikes in any of these sessions.</div>'}</div>`;
   const mods = {};
-  (A.mods || []).forEach(m => { mods[m.name] = { a: m, b: null }; });
-  (B.mods || []).forEach(m => { (mods[m.name] = mods[m.name] || { a: null, b: null }).b = m; });
+  R.forEach((r, i) => (r.mods || []).forEach(m => { (mods[m.name] = mods[m.name] || [])[i] = m; }));
   const sc = (m) => m ? (m.redscript_ms_per_s || 0) + (m.cet_ms_per_s || 0) : null;
-  const list = Object.entries(mods).map(([n, v]) => ({ n, a: sc(v.a), b: sc(v.b), sa: v.a ? v.a.in_spikes : 0, sb: v.b ? v.b.in_spikes : 0 }))
-    .filter(x => (x.a || 0) + (x.b || 0) > 0.2 || x.sa + x.sb > 0).sort((x, y) => Math.max(y.a || 0, y.b || 0) - Math.max(x.a || 0, x.b || 0)).slice(0, 40);
-  html += `<div class="card" style="margin-top:14px"><h2>Mods: script time and spikes</h2><table><tr><th>mod</th><th class="n">ms/s before</th><th class="n">ms/s after</th><th class="n">change</th><th class="n">in spikes before → after</th></tr>
-    ${list.map(x => { const r = row(esc(x.n), x.a, x.b, v => v == null ? 'not there' : v.toFixed(2), true); return r.replace('</tr>', `<td class="n">${x.sa} → ${x.sb}</td></tr>`); }).join('')}</table></div>`;
+  const list = Object.entries(mods).map(([name, arr]) => ({ name, v: R.map((_, i) => sc(arr[i])), sp: R.map((_, i) => arr[i] ? arr[i].in_spikes || 0 : 0) }))
+    .filter(x => x.v.some(v => (v || 0) > 0.2) || x.sp.some(v => v > 0)).sort((a, b) => Math.max(...b.v.map(v => v || 0)) - Math.max(...a.v.map(v => v || 0))).slice(0, 40);
+  html += `<div class="card"><h2>Mods: script time (ms/s)</h2>${list.length ? `<div class="scroll"><table>${head()}${list.map(x => `<tr><td>${esc(x.name)}${x.sp.some(v => v) ? '<div class="dimmer small">in spikes: ' + x.sp.join(' · ') + '</div>' : ''}</td>${x.v.map((v, i) => v == null ? '<td class="n dimmer">not there</td>' : cell(v, x.v[0], y => y.toFixed(2), true, i)).join('')}</tr>`).join('')}</table></div>` : '<div class="dim">No per-mod script time in these sessions (needs marked parts).</div>'}</div></div>`;
   $('#cmp-body').innerHTML = html;
+
+  // the overlaid L-shapes
+  const host = $('#cmp-lshape');
+  const u = lshapeChart(host, R.map((r, i) => ({ label: String(i + 1), color: CMP_COL[i], dash: CMP_DASH[i], pts: r.lshape })), Math.max(400, host.clientWidth - 4), 320,
+    (i, p, vals) => { const box = $('#cmp-read'); if (box) box.innerHTML = lsHead(p) + ': ' + vals.map((v, j) => S.cmpHide.has(ids[j]) ? '' : `${cmpTag(j)} <b>${fmt.ms(v)}</b>`).filter(Boolean).join(' &nbsp; '); });
+  if (!u) { host.innerHTML = '<div class="empty" style="padding:20px">None of these sessions has an L-shape yet: open each once (or press Re-analyse) and come back.</div>'; return; }
+  S.cmpCharts.push(u);
+  ids.forEach((id, i) => { if (S.cmpHide.has(id)) u.setSeries(i + 1, { show: false }); });
+  addExpand(host, { title: 'Compare: L-shapes', legend: $('#cmp-legend'), xFull: [lsx(0), lsx(99.99)], minSpan: 0.05, yKeys: ['y'],
+    build: (vh, w, h, view) => {
+      const v = lshapeChart(vh, R.map((r, i) => ({ label: String(i + 1), color: CMP_COL[i], dash: CMP_DASH[i], pts: r.lshape })), w, h,
+        (i, p, vals) => { view.read.innerHTML = lsHead(p) + ': ' + vals.map((x, j) => S.cmpHide.has(ids[j]) ? '' : `${cmpTag(j)} <b>${fmt.ms(x)}</b>`).filter(Boolean).join(' &nbsp; '); }, true);
+      ids.forEach((id, i) => { if (S.cmpHide.has(id)) v.setSeries(i + 1, { show: false }); });
+      return v;
+    } });
+  $$('[data-leg]', root).forEach(el => el.onclick = () => {
+    const i = +el.dataset.leg, id = ids[i], off = !S.cmpHide.has(id);
+    if (off) S.cmpHide.add(id); else S.cmpHide.delete(id);
+    el.classList.toggle('off', off);
+    u.setSeries(i + 1, { show: !off });
+  });
 }
 
 /* ------------------------------------------------------------------ mods */
@@ -1347,12 +1655,19 @@ function renderSettings(force) {
   if (S.settingsDirty && !force) return;
   if (!force && root.dataset.built) { updateSettingsInfo(); return; }
   const c = st.config;
-  root.innerHTML = `<div class="card" style="max-width:1020px"><h2>Game builds</h2><div id="set-builds">${c.builds.map((b, i) => `<div class="brow"><input data-bn="${i}" value="${esc(b.name)}"><input data-bp="${i}" value="${esc(b.path)}"><button class="btn2 small" data-del="${i}" title="remove">✕</button></div>`).join('')}</div>
+  const keyOpt = (vk) => { const list = S.hotkeys || [{ vk, name: vk === (c.felt_key || 121) ? st.keys.felt : st.keys.mark }]; return list.map(k => `<option value="${k.vk}" ${k.vk === vk ? 'selected' : ''}>${esc(k.name)}</option>`).join(''); };
+  root.innerHTML = `<div class="card" style="max-width:1020px"><h2>Game builds</h2><div id="set-builds">${c.builds.map((b, i) => buildBlock(i, b)).join('')}</div>
     <div style="display:flex;gap:8px;margin-top:6px"><button class="btn2 small" id="set-find">Find game installs</button><button class="btn2 small" id="set-add">Add a build</button></div>
-    <div class="dimmer small" style="margin-top:6px">A build is one Cyberpunk 2077 folder (the one with bin\\x64 in it). Find game installs looks at Steam, GOG, Epic, the running game, the usual folders on every drive and copies next to them.</div>
+    <div class="dimmer small" style="margin-top:6px">A build is one Cyberpunk 2077 folder (the one with bin\\x64 in it). Find game installs looks at Steam, GOG, Epic, the running game, the usual folders on every drive and copies next to them.
+      If Mod Organizer 2 runs a build, give its MO2 folder: MO2 keeps the mods outside the game folder, so without it Frame Lab sees a game with no mods.</div>
+    <h2 style="margin-top:18px">In-game keys</h2><div class="form">
+      <label>Mark a part</label><div><select id="set-mark">${keyOpt(c.mark_key || 122)}</select> <span class="dimmer small">starts and ends a mark: script time per mod is measured inside marks</span></div>
+      <label>"I felt a stutter"</label><div><select id="set-felt">${keyOpt(c.felt_key || 121)}</select> <span class="dimmer small">the report shows the 2 seconds before each press</span></div>
+    </div>
+    <div class="dimmer small" style="margin-top:6px">Pick keys that the game, your overlays and other mods don't use. Frame Lab and HitchRecorder see the key wherever it is pressed, so only function keys, the navigation keys and the number pad are offered. New keys count from the next session.</div>
     <h2 style="margin-top:18px">Analysis</h2><div class="form">
       <label>Spike threshold (ms)</label><input id="set-spike" type="number" min="16" max="500" value="${c.spike_ms}" style="width:110px">
-      <label>Script time per mod</label><label style="color:var(--text)"><input id="set-scripts" type="checkbox" ${c.use_script_profilers ? 'checked' : ''}> time REDscript and CET mods in the parts marked with F11 (HitchRecorder)</label>
+      <label>Script time per mod</label><label style="color:var(--text)"><input id="set-scripts" type="checkbox" ${c.use_script_profilers ? 'checked' : ''}> time REDscript and CET mods in the parts marked with the mark key (HitchRecorder)</label>
       <label>Frame generation</label><label style="color:var(--text)"><input id="set-ft" type="checkbox" ${c.track_frame_type ? 'checked' : ''}> ask PresentMon to tell real and generated frames apart</label>
       <label>Windows events</label><label style="color:var(--text)"><input id="set-we" type="checkbox" ${c.no_windows_events ? '' : 'checked'}> record which drivers and programs held the PC during the session (Windows' own event tracing, needs admin)</label>
       <label>PresentMon exe</label><input id="set-pm" value="${esc(c.presentmon || '')}" placeholder="automatic: ${esc(st.components.presentmon.path || 'not found')}">
@@ -1366,28 +1681,73 @@ function renderSettings(force) {
       File names come from WolvenKit's path list on this PC.</div></div>`;
   root.dataset.built = '1';
   const dirty = () => { S.settingsDirty = true; $('#set-msg').textContent = 'unsaved changes'; };
-  $$('input', root).forEach(i => i.addEventListener('input', dirty));
-  $('#set-add').onclick = () => { $('#set-builds').insertAdjacentHTML('beforeend', `<div class="brow"><input data-bn="n" placeholder="name"><input data-bp="n" placeholder="C:\\...\\Cyberpunk 2077"><button class="btn2 small" data-del="n">✕</button></div>`); dirty(); };
+  root.addEventListener('input', dirty);
+  root.addEventListener('change', (e) => { if (e.target.tagName === 'SELECT') dirty(); });
+  $('#set-add').onclick = () => { $('#set-builds').insertAdjacentHTML('beforeend', buildBlock('n', { name: '', path: '', mo2: '' })); dirty(); };
   $('#set-find').onclick = async () => {
     let r;
     try { r = await api('builds/detect', {}); } catch (x) { toast(x.message, true); return; }
     const have = new Set($$('#set-builds [data-bp]').map(i => i.value.trim().toLowerCase().replace(/[\\/]+$/, '')));
     const add = (r.found || []).filter(f => !have.has(f.path.toLowerCase().replace(/[\\/]+$/, '')));
-    add.forEach(f => $('#set-builds').insertAdjacentHTML('beforeend', `<div class="brow"><input data-bn="n" value="${esc(f.name)}"><input data-bp="n" value="${esc(f.path)}"><button class="btn2 small" data-del="n">✕</button></div>`));
+    add.forEach(f => $('#set-builds').insertAdjacentHTML('beforeend', buildBlock('n', { name: f.name, path: f.path, mo2: '' })));
     if (add.length) { dirty(); toast('Found ' + add.length + ' more: check the names, then Save.'); }
     else toast((r.found || []).length ? 'No new installs: every one found is already listed.' : 'No Cyberpunk 2077 install found. Use Add a build and paste the game folder.');
   };
-  $('#set-builds').onclick = (e) => { const d = e.target.closest('[data-del]'); if (d) { d.parentElement.remove(); dirty(); } };
+  $('#set-builds').onclick = (e) => {
+    const d = e.target.closest('[data-del]');
+    if (d) { d.closest('.bblock').remove(); dirty(); return; }
+    const u = e.target.closest('[data-usemo2]');
+    if (u) { const inp = $('[data-bm]', u.closest('.bblock')); inp.value = u.dataset.usemo2; dirty(); toast('Press Save to use this MO2 instance.'); }
+  };
   $('#set-save').onclick = async () => {
-    const builds = $$('#set-builds .brow').map(r => ({ name: $('[data-bn]', r).value.trim(), path: $('[data-bp]', r).value.trim() })).filter(b => b.name && b.path);
+    const builds = $$('#set-builds .bblock').map(r => ({ name: $('[data-bn]', r).value.trim(), path: $('[data-bp]', r).value.trim(), mo2: $('[data-bm]', r).value.trim() })).filter(b => b.name && b.path);
     const cfg = Object.assign({}, S.state.config, {
       builds, spike_ms: +$('#set-spike').value || 50, use_script_profilers: $('#set-scripts').checked, track_frame_type: $('#set-ft').checked, no_windows_events: !$('#set-we').checked,
       presentmon: $('#set-pm').value.trim(), library: $('#set-lib').value.trim(), wolvenkit: $('#set-wk').value.trim(),
+      felt_key: +$('#set-felt').value || 0, mark_key: +$('#set-mark').value || 0,
     });
+    if (cfg.felt_key && cfg.felt_key === cfg.mark_key) { toast('The two in-game keys have to be different keys.', true); return; }
     if (cfg.active >= builds.length) cfg.active = 0;
-    try { await api('settings', cfg); S.settingsDirty = false; toast('Saved. Re-analyse old sessions to use a new spike threshold.'); renderSettings(true); } catch (x) { toast(x.message, true); }
+    try { await api('settings', cfg); S.settingsDirty = false; S.setInfo = null; toast('Saved. Re-analyse old sessions to use a new spike threshold.'); S.state = await api('state'); renderSettings(true); } catch (x) { toast(x.message, true); }
   };
   updateSettingsInfo();
+  loadSettingsInfo();
+}
+
+// one build in Settings: name, folder, and the MO2 instance that runs it (2.5)
+function buildBlock(i, b) {
+  return `<div class="bblock"><div class="brow"><input data-bn="${i}" value="${esc(b.name)}" placeholder="name"><input data-bp="${i}" value="${esc(b.path)}" placeholder="C:\\...\\Cyberpunk 2077"><button class="btn2 small" data-del="${i}" title="remove">✕</button></div>
+    <div class="brow mo2row"><span class="dim small">Mod Organizer 2</span><input data-bm="${i}" value="${esc(b.mo2 || '')}" placeholder="only if MO2 runs this build: its folder (the one with ModOrganizer.ini)"><span></span></div>
+    <div class="mo2info small" data-mi="${i}"></div></div>`;
+}
+
+// the key list and what each build's MO2 instance looks like (or which instances were found for it)
+async function loadSettingsInfo() {
+  let info = S.setInfo;
+  if (!info) {
+    try { info = S.setInfo = await api('settings/info'); } catch (e) { return; }
+  }
+  S.hotkeys = info.hotkeys || S.hotkeys;
+  const c = S.state.config;
+  [['#set-mark', c.mark_key || 122], ['#set-felt', c.felt_key || 121]].forEach(([id, vk]) => {
+    const sel = $(id);
+    if (!sel || sel.options.length > 1) return;
+    const cur = +sel.value || vk;
+    sel.innerHTML = S.hotkeys.map(k => `<option value="${k.vk}" ${k.vk === cur ? 'selected' : ''}>${esc(k.name)}</option>`).join('');
+  });
+  (info.mo2 || []).forEach(m => {
+    const el = $(`.mo2info[data-mi="${m.index}"]`);
+    if (!el) return;
+    if (m.instance) {
+      const x = m.instance;
+      el.innerHTML = `<span class="dot ${m.error ? 'y' : 'g'}" style="display:inline-block;margin:0 6px 0 0"></span>${esc(x.name)} · profile <b>${esc(x.profile)}</b> · ${x.enabled} mods on` +
+        `<span class="dimmer"> · mods ${esc(x.mods_dir)} · overwrite ${esc(x.overwrite_dir)}</span>` + (m.error ? `<div style="color:var(--amber)">${esc(m.error)}</div>` : '');
+    } else if (m.error) {
+      el.innerHTML = `<span style="color:var(--amber)">${esc(m.error)}</span>`;
+    } else if ((m.suggested || []).length) {
+      el.innerHTML = m.suggested.map(x => `<div>MO2 instance found for this game: <b>${esc(x.name)}</b> <span class="dimmer">${esc(x.dir)} · profile ${esc(x.profile)} · ${x.enabled} mods on</span> <button class="link" data-usemo2="${esc(x.dir)}">Use it</button></div>`).join('');
+    } else el.innerHTML = '';
+  });
 }
 
 function updateSettingsInfo() {

@@ -3,11 +3,12 @@ package conflicts
 import (
 	"bufio"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"framelab/internal/gamefs"
 )
 
 // TweakXL: .yaml files in r6/tweaks set TweakDB records and values. When two mods set the same value
@@ -65,7 +66,7 @@ type tweakSet struct{ owner, value, file string }
 func checkTweaks(r *Report, o Options) {
 	root := filepath.Join(o.Game, "r6", "tweaks")
 	sets := map[string][]tweakSet{}
-	filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	gamefs.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -73,7 +74,7 @@ func checkTweaks(r *Report, o Options) {
 		if ext != ".yaml" && ext != ".yml" {
 			return nil
 		}
-		f, err := os.Open(p)
+		f, err := gamefs.Open(p)
 		if err != nil {
 			return nil
 		}

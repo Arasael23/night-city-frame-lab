@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"framelab/internal/gamefs"
 )
 
 const FileEvents = "events.json"
@@ -49,6 +51,7 @@ type CrashInfo struct {
 	Shader  string  `json:"shader,omitempty"`  // what the card was running (from the report)
 	Pass    string  `json:"pass,omitempty"`    // the render pass that never finished
 	Device  string  `json:"device_state,omitempty"`
+	lastQ   int64   // the last frame the game made before it stopped (0: not known)
 }
 
 var reportName = regexp.MustCompile(`^(\d{8}-\d{6})-crash-.*\.txt$`)
@@ -121,6 +124,7 @@ func (d *data) findCrash(res *Result, t0 int64) *CrashInfo {
 	if !ci.Hung && ci.Report == "" {
 		return nil
 	}
+	ci.lastQ = lastQ
 
 	// the long "frame" that ends the recording is the hang, not a stutter
 	if ci.Hung {
@@ -180,7 +184,7 @@ func findReport(game string, from, to time.Time) string {
 		return ""
 	}
 	dir := filepath.Join(game, "bin", "x64", "plugins", "AdvancedCrashReporter", "reports")
-	ents, err := os.ReadDir(dir)
+	ents, err := gamefs.ReadDir(dir)
 	if err != nil {
 		return ""
 	}
@@ -204,7 +208,7 @@ func findReport(game string, from, to time.Time) string {
 
 // readReport picks the lines Frame Lab shows from a crash report.
 func readReport(path string, ci *CrashInfo) {
-	f, err := os.Open(path)
+	f, err := gamefs.Open(path)
 	if err != nil {
 		return
 	}

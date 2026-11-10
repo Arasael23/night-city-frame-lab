@@ -283,3 +283,48 @@ details.vr[open] .chev { transform: rotate(90deg); display: inline-block; }
 .exl .st.ok i { background: var(--green); opacity: 1; } .exl .st.ok { color: var(--white); }
 .exl .st.chk i { background: var(--amber); opacity: 1; } .exl .st.chk { color: var(--amber); }
 .exl .st.nfo i { background: #9cc3ff; opacity: 1; } .exl .st.nfo { color: #9cc3ff; }
+
+/* 2.5: Settings (MO2 per build), Compare with up to six sessions, the L-shape */
+.bblock { padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--rule); }
+.bblock:last-child { border-bottom: none; }
+.mo2row { margin-bottom: 2px; align-items: center; }
+.mo2row > span:first-child { padding-left: 2px; }
+.mo2info { margin: 0 0 0 188px; color: var(--dim); min-height: 0; }
+.mo2info:empty { display: none; }
+.mo2info .dot { width: 7px; height: 7px; }
+.cmp-pick2 { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; align-items: flex-start; }
+.cmp-slot { display: flex; align-items: center; gap: 8px; }
+.cmp-slot select { min-width: 380px; max-width: 70vw; }
+.cmp-n { display: inline-block; min-width: 18px; height: 18px; line-height: 16px; text-align: center; border: 1.5px solid; border-radius: 9px; font: 500 10.5px/16px var(--mono); color: var(--white); padding: 0 3px; }
+th .cmp-n { vertical-align: middle; }
+.cmp-leg { cursor: pointer; user-select: none; padding: 2px 4px; border-radius: 2px; }
+.cmp-leg:hover { background: var(--tint); }
+.cmp-leg.off { opacity: .4; text-decoration: line-through; }
+.fbar-g { margin: 4px 0 10px; }
+.fbar { display: grid; grid-template-columns: 24px 1fr 44px; align-items: center; gap: 8px; margin: 3px 0; }
+.fbar-t { height: 10px; background: var(--rule); border-radius: 2px; overflow: hidden; }
+.fbar-t > div { height: 100%; border-radius: 0 2px 2px 0; }
+.fbar .n { font-family: var(--mono); font-size: 12px; text-align: right; color: var(--text); }
+.cmp-step { padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.cmp-step:last-child { border-bottom: none; }
+.cmp-step-h { margin-bottom: 4px; }
+.scroll-x { overflow-x: auto; }
+td .delta.small { font-size: 10.5px; }
+@media (max-width: 900px) { .mo2info { margin-left: 0; } .cmp-slot select { min-width: 0; width: 60vw; } }
+
+/* 2.31: open-larger button on every chart + the chart viewer */
+.card.has-cv { position: relative; }
+.cv-open { position: absolute; top: 8px; right: 8px; z-index: 2; width: 26px; height: 24px; display: inline-flex; align-items: center; justify-content: center; background: var(--panel); border: 1px solid var(--line2); color: #b4b4af; border-radius: 2px; cursor: pointer; padding: 0; opacity: .75; }
+.cv-open:hover { opacity: 1; border-color: var(--accent); color: var(--white); }
+.card.has-cv .chart-top { padding-right: 34px; }
+.card.has-cv > .legend:first-child { padding-right: 34px; }
+.chartview { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, .62); display: flex; align-items: center; justify-content: center; padding: 22px; }
+.chartview.hidden { display: none; }
+.cv-box { width: min(1600px, 100%); max-height: 100%; overflow: auto; background: var(--panel); border: 1px solid var(--line2); border-radius: 4px; padding: 14px 16px 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, .5); }
+.cv-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.cv-title { color: var(--white); font: 500 12px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .07em; }
+.cv-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.cv-tools .btn2.small { min-width: 30px; }
+.cv-host { cursor: grab; }
+.cv-host .u-over.cv-grab { cursor: grabbing; }
+.cv-hint { margin: 6px 4px 0; }

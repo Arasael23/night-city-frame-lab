@@ -1,4 +1,4 @@
-HitchRecorder 1.0.0
+HitchRecorder 1.1.1
 ===================
 
 What it does
@@ -25,8 +25,12 @@ Settings
   If the game ever crashes with it, set Enabled=0 first and keep the crash report.
 
 Needs
-  RED4ext 1.30+ (game 2.31). On other game versions the ResourceLoader update hook and the
-  REDscript timing stay off; the rest uses the same engine addresses ArchiveXL uses on 2.31 and 2.5.
+  RED4ext 1.30+ (game 2.31 or 2.5). The ResourceLoader update hook and the REDscript timing are
+  checked on 2.31 and 2.5.0; on other game versions they stay off and the log says so. The rest uses
+  the same engine addresses ArchiveXL uses on 2.31 and 2.5.
+  On 2.5 the recorder finds where the game keeps each script function's source file during the
+  first script binds at game start (the log names what it found). If it can't, REDscript time
+  shows under "scripts without a source file".
   CET timing needs Cyber Engine Tweaks (1.37 checked); without it, or with a CET whose LuaJIT
   looks different, it stays off and the log says so.
 

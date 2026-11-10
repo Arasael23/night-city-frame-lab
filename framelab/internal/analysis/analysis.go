@@ -26,29 +26,33 @@ type Env struct {
 // ---------------------------------------------------------------- output
 
 type Result struct {
-	Version   int             `json:"version"`
-	Generated time.Time       `json:"generated"`
-	Meta      *Meta           `json:"meta"`
-	KPI       KPI             `json:"kpi"`
-	Layers    []LayerState    `json:"layers"`
-	Timeline  Timeline        `json:"timeline"`
-	Markers   []Marker        `json:"markers"`
-	Spikes    []Spike         `json:"spikes"`
-	Causes    []CauseCount    `json:"causes"`
-	Mods      []ModRow        `json:"mods"`
-	Engine    []KindRow       `json:"engine"`
-	Shaders   ShaderInfo      `json:"shaders"`
-	Advice    []Advice        `json:"advice"`
-	Warnings  []string        `json:"warnings"`
-	Pacing    *Pacing         `json:"pacing,omitempty"`     // how evenly frames reached the screen (1.4+)
-	Windows   *WinSummary     `json:"windows,omitempty"`    // Windows event recorder (1.4+)
-	GpuApps   *GpuAppsSummary `json:"gpu_apps,omitempty"`   // other programs on the graphics card (1.4+)
-	Crash     *CrashInfo      `json:"crash,omitempty"`      // the session ended in a crash / GPU hang (2.0+)
-	Marks     []FeltMark      `json:"felt_marks,omitempty"` // F10 "I felt a stutter" marks (2.0+)
-	SysEvents []SysEvent      `json:"sys_events,omitempty"` // Windows System log: driver resets, hardware errors (2.0+)
-	Loads     *LoadTimes      `json:"load_times,omitempty"` // start to menu, loading screens (2.0+)
-	Snapshot  *Snapshot       `json:"snapshot,omitempty"`   // versions, settings and mod files at the start (2.0+)
-	Blocks    []BlockStat     `json:"blocks,omitempty"`     // 30 s stretches of play, for Compare's noise check (2.0+)
+	Version        int             `json:"version"`
+	Generated      time.Time       `json:"generated"`
+	Meta           *Meta           `json:"meta"`
+	KPI            KPI             `json:"kpi"`
+	Layers         []LayerState    `json:"layers"`
+	Timeline       Timeline        `json:"timeline"`
+	Markers        []Marker        `json:"markers"`
+	Spikes         []Spike         `json:"spikes"`
+	Causes         []CauseCount    `json:"causes"`
+	Mods           []ModRow        `json:"mods"`
+	Engine         []KindRow       `json:"engine"`
+	Shaders        ShaderInfo      `json:"shaders"`
+	Advice         []Advice        `json:"advice"`
+	Warnings       []string        `json:"warnings"`
+	Pacing         *Pacing         `json:"pacing,omitempty"`           // how evenly frames reached the screen (1.4+)
+	Windows        *WinSummary     `json:"windows,omitempty"`          // Windows event recorder (1.4+)
+	Reloaded       []Reloaded      `json:"reloaded,omitempty"`         // the same files loaded again in stutter after stutter (2.31)
+	ReloadStutters int             `json:"reload_stutters,omitempty"`  // stutters with one of those files in them
+	ReloadVramFull int             `json:"reload_vram_full,omitempty"` // of those, with VRAM at 90% of its budget or more
+	GpuApps        *GpuAppsSummary `json:"gpu_apps,omitempty"`         // other programs on the graphics card (1.4+)
+	Crash          *CrashInfo      `json:"crash,omitempty"`            // the session ended in a crash / GPU hang (2.0+)
+	Marks          []FeltMark      `json:"felt_marks,omitempty"`       // F10 "I felt a stutter" marks (2.0+)
+	SysEvents      []SysEvent      `json:"sys_events,omitempty"`       // Windows System log: driver resets, hardware errors (2.0+)
+	Loads          *LoadTimes      `json:"load_times,omitempty"`       // start to menu, loading screens (2.0+)
+	Snapshot       *Snapshot       `json:"snapshot,omitempty"`         // versions, settings and mod files at the start (2.0+)
+	Blocks         []BlockStat     `json:"blocks,omitempty"`           // 30 s stretches of play, for Compare's noise check (2.0+)
+	LShape         [][2]float64    `json:"lshape,omitempty"`           // [percentile, frame time ms] over the play frames: the L-shape (2.5+)
 }
 
 type KPI struct {
@@ -192,6 +196,9 @@ type Spike struct {
 	Reset      string    `json:"reset,omitempty"`       // the screen reset this spike started with or followed
 	AfterReset bool      `json:"after_reset,omitempty"` // inside the time a screen reset kept the extra memory
 	Win        []WinItem `json:"win,omitempty"`         // what Windows was doing (event recorder, 1.4+)
+	ReadMaxMs  float64   `json:"read_max_ms,omitempty"` // the game's longest single disk read around the spike (event recorder)
+	DefenderMB float64   `json:"defender_mb,omitempty"` // Microsoft Defender reading from disk at the same time
+	winRec     bool      // the Windows event recorder ran (so read times are known)
 	CpuClock   float64   `json:"cpu_clock_mhz,omitempty"`
 	Verdict    string    `json:"verdict"`
 	NearMark   bool      `json:"near_mark"`
@@ -264,7 +271,7 @@ func (d *data) unixToQpc(u float64) int64 { return d.anchorQ + int64((u-d.anchor
 
 // ResultVersion goes up when the analysis gains something new; older analysis.json files are
 // rebuilt when a session is opened (if its recording is still there).
-const ResultVersion = 2
+const ResultVersion = 4 // 3: L-shape (2.5); 4: read times / reloaded files (2.31)
 
 // Run analyses the session folder and writes analysis.json.
 func Run(dir string, env Env) (*Result, error) {
@@ -542,6 +549,7 @@ func Run(dir string, env Env) (*Result, error) {
 		sorted := append([]float64(nil), ms...)
 		sort.Float64s(sorted)
 		res.KPI.Frames = n
+		res.LShape = lShape(sorted)
 		res.KPI.MedianMs = pctl(sorted, 50)
 		res.KPI.Low1Fps = 1000 / pctl(sorted, 99)
 		res.KPI.Low01Fps = 1000 / pctl(sorted, 99.9)
@@ -1132,6 +1140,8 @@ func Run(dir string, env Env) (*Result, error) {
 		m[0]++
 		m[1] += ms
 	}
+	diskSlow := 0                    // "disk" stutters where Windows saw a slow read
+	fileSpikes := map[uint64][]int{} // file hash -> stutters (index in res.Spikes) it was loaded in
 	markQ := []int64{}
 	for _, m := range res.Markers {
 		if m.Kind == "mark" {
@@ -1145,6 +1155,7 @@ func Run(dir string, env Env) (*Result, error) {
 		groupMs := map[string]float64{}
 		kindMs := map[string]float64{}    // label -> ms (for parts)
 		spikeMods := map[string]float64{} // mod key -> ms inside this spike
+		spikeFiles := map[uint64]bool{}   // files loaded inside this spike
 		var shaderMax float64
 		var items []Item
 		overlapping(s.q0, s.q1, func(e *ev, ov float64) {
@@ -1171,6 +1182,7 @@ func Run(dir string, env Env) (*Result, error) {
 				if hrec.IsPath(k) && e.r.Hash != 0 {
 					it.Label = fmt.Sprintf("#%016x", e.r.Hash)
 					wantNames[e.r.Hash] = true
+					spikeFiles[e.r.Hash] = true
 					if a := modArchive(e.r.Hash); a != "" {
 						lab, _ := modLabelForArchive(a)
 						it.Mod = lab
@@ -1242,6 +1254,8 @@ func Run(dir string, env Env) (*Result, error) {
 		if wl != nil {
 			var drvMs, pagMs float64
 			sp.Win, drvMs, _, pagMs, topDriver = wl.in(s.q0, s.q1)
+			sp.ReadMaxMs, sp.DefenderMB = wl.reads(s.q0, s.q1)
+			sp.winRec = true
 			if drvMs > 0 {
 				groupMs["driver"] = math.Min(L, drvMs)
 			}
@@ -1307,7 +1321,14 @@ func Run(dir string, env Env) (*Result, error) {
 		}
 		sp.Group = best
 		sp.Cause = causeLabel[best]
+		if best == "disk" && sp.ReadMaxMs >= SlowReadMs {
+			sp.Cause = "slow disk reads"
+			diskSlow++
+		}
 		sp.Verdict = verdict(best, groupMs, L, sp)
+		for h := range spikeFiles {
+			fileSpikes[h] = append(fileSpikes[h], len(res.Spikes))
+		}
 		if best == "reset" && spReset != nil {
 			sp.Verdict = resetVerdict(spReset)
 		}
@@ -1325,6 +1346,15 @@ func Run(dir string, env Env) (*Result, error) {
 		cc.Count++
 		cc.TotalMs += L
 		res.Spikes = append(res.Spikes, sp)
+	}
+	if c := causeCount["disk"]; c != nil && diskSlow > 0 {
+		c.Cause = fmt.Sprintf("%s (%d with slow disk reads)", causeLabel["disk"], diskSlow)
+	}
+	res.Reloaded, res.ReloadStutters, res.ReloadVramFull = reloadedFiles(res.Spikes, fileSpikes)
+	for i := range res.Reloaded {
+		if a := modArchive(res.Reloaded[i].hash); a != "" {
+			res.Reloaded[i].Mod, _ = modLabelForArchive(a)
+		}
 	}
 	// Windows event recorder: the whole session, and how many stutters it explained
 	if wl != nil {
@@ -1377,6 +1407,27 @@ func Run(dir string, env Env) (*Result, error) {
 
 	// ---- a crash / GPU hang at the end of the recording (2.0)
 	res.Crash = d.findCrash(res, t0)
+	// 2.31: after the game's last frame the crash reporter writes its memory dump and the driver resets;
+	// that isn't play, so the RAM and commit numbers stop at the last frame
+	if c := res.Crash; c != nil && c.lastQ > 0 && len(samp) > 0 {
+		var ram []float64
+		res.KPI.CommitPeakMB, res.KPI.CommitLimitMB, res.KPI.RamFreeMinMB, res.KPI.RamFreeTypMB = 0, 0, 0, 0
+		for _, s := range samp {
+			if !playing(s.Qpc) || s.Qpc > c.lastQ {
+				continue
+			}
+			if s.AvailRamMB > 0 {
+				ram = append(ram, s.AvailRamMB)
+			}
+			if s.CommitMB > res.KPI.CommitPeakMB {
+				res.KPI.CommitPeakMB, res.KPI.CommitLimitMB = math.Round(s.CommitMB), math.Round(s.CommitLimitMB)
+			}
+		}
+		if len(ram) > 0 {
+			sort.Float64s(ram)
+			res.KPI.RamFreeMinMB, res.KPI.RamFreeTypMB = math.Round(ram[0]), math.Round(pctl(ram, 50))
+		}
+	}
 	// ---- F10 "I felt a stutter" presses (2.0)
 	res.Marks = d.feltMarks(dir, res, t0)
 	res.SysEvents = readEvents(dir)
@@ -1594,6 +1645,11 @@ func Run(dir string, env Env) (*Result, error) {
 	// ---- file names
 	if env.Names != "" && env.Names.Exists() && len(wantNames) > 0 {
 		names, _ := env.Names.Resolve(wantNames)
+		for i := range res.Reloaded {
+			if n, ok := names[res.Reloaded[i].hash]; ok {
+				res.Reloaded[i].Name = n
+			}
+		}
 		for i := range res.Spikes {
 			for j := range res.Spikes[i].Items {
 				it := &res.Spikes[i].Items[j]
@@ -1694,6 +1750,7 @@ func (d *data) captureWindows() [][2]int64 {
 }
 
 func (d *data) layerStates(win [][2]int64, marked bool) []LayerState {
+	_, mk := d.meta.Keys()
 	var out []LayerState
 	if d.hr != nil {
 		h := d.hr.LatestHooks()
@@ -1728,12 +1785,12 @@ func (d *data) layerStates(win [][2]int64, marked bool) []LayerState {
 				mods++
 			}
 		}
-		det := fmt.Sprintf("%.1f ms/s script time in the F11 parts, %d mods + the game's own scripts", d.reds.MsPerSec, mods)
+		det := fmt.Sprintf("%.1f ms/s script time in the %s parts, %d mods + the game's own scripts", d.reds.MsPerSec, mk, mods)
 		out = append(out, LayerState{"REDscript per mod", true, det})
 	} else {
 		det := "not recorded in this session"
 		if d.hr != nil && d.hr.Header.CaptureMode == 2 && !marked {
-			det = "only measured in parts marked with F11; none this session"
+			det = "only measured in parts marked with " + mk + "; none this session"
 		}
 		out = append(out, LayerState{"REDscript per mod", false, det})
 	}
@@ -1744,12 +1801,12 @@ func (d *data) layerStates(win [][2]int64, marked bool) []LayerState {
 				mods++
 			}
 		}
-		det := fmt.Sprintf("%.1f ms/s Lua time in the F11 parts, %d CET mods + CET itself", d.cetl.MsPerSec, mods)
+		det := fmt.Sprintf("%.1f ms/s Lua time in the %s parts, %d CET mods + CET itself", d.cetl.MsPerSec, mk, mods)
 		out = append(out, LayerState{"CET Lua per mod", true, det})
 	} else {
 		det := "not recorded in this session"
 		if d.hr != nil && d.hr.Header.CaptureMode == 2 && !marked {
-			det = "only measured in parts marked with F11; none this session"
+			det = "only measured in parts marked with " + mk + "; none this session"
 		}
 		out = append(out, LayerState{"CET Lua per mod", false, det})
 	}
@@ -1767,7 +1824,7 @@ var causeLabel = map[string]string{
 	"cet":         "CET Lua mods",
 	"gpu":         "GPU bound (heavy frame)",
 	"vram":        "VRAM full (GPU memory)",
-	"disk":        "disk reads",
+	"disk":        "heavy streaming (lots of data read)",
 	"ram":         "system RAM full",
 	"driver":      "driver (interrupts / DPCs)",
 	"paging":      "game memory read back from disk",
@@ -1862,7 +1919,13 @@ func verdict(g string, gm map[string]float64, L float64, s Spike) string {
 		}
 		return fmt.Sprintf("The game was reserving new GPU memory (%.0f ms) with VRAM at %.0f of %.0f MB; the frame waited for it.", gm["vram"], s.VramMB, s.BudgetMB)
 	case "disk":
-		return fmt.Sprintf("Heavy disk reads at the time (%.0f MB/s).", s.DiskMBs)
+		switch {
+		case s.ReadMaxMs >= SlowReadMs:
+			return fmt.Sprintf("Slow disk reads: one of the game's reads took %.0f ms (a healthy SSD answers in a few ms at most) while it was reading %.0f MB/s.", s.ReadMaxMs, s.DiskMBs)
+		case s.winRec:
+			return fmt.Sprintf("The game was streaming in a lot of data (%.0f MB/s) and the drive kept up (no read over %.0f ms): the stall is the game handling that data, not waiting on the disk.", s.DiskMBs, SlowReadMs)
+		}
+		return fmt.Sprintf("The game was streaming in a lot of data (%.0f MB/s). Windows' read times weren't recorded in this session, so it can't tell whether the drive itself was slow.", s.DiskMBs)
 	case "ram":
 		return fmt.Sprintf("System RAM was nearly full (%.0f MB free): Windows was moving memory out to the page file, and every frame waits for that.", s.RamFreeMB)
 	}
@@ -1870,6 +1933,38 @@ func verdict(g string, gm map[string]float64, L float64, s Spike) string {
 }
 
 // ---------------------------------------------------------------- helpers
+
+// LShapePcts: the percentiles of the L-shape. Dense towards the top, where the slow frames are:
+// the chart spreads 90 / 99 / 99.9 / 99.99 evenly.
+var LShapePcts = func() []float64 {
+	var p []float64
+	for i := 0; i < 18; i++ { // 0 .. 85 in steps of 5
+		p = append(p, float64(i*5))
+	}
+	for i := 0; i < 18; i++ { // 90 .. 98.5 in steps of 0.5
+		p = append(p, 90+float64(i)*0.5)
+	}
+	for i := 0; i < 18; i++ { // 99 .. 99.85 in steps of 0.05
+		p = append(p, math.Round((99+float64(i)*0.05)*100)/100)
+	}
+	for i := 0; i <= 18; i++ { // 99.9 .. 99.99 in steps of 0.005
+		p = append(p, math.Round((99.9+float64(i)*0.005)*1000)/1000)
+	}
+	return p
+}()
+
+// lShape: frame time at each LShapePcts percentile (sorted: the play frames, sorted). Fewer than
+// 100 frames make no curve.
+func lShape(sorted []float64) [][2]float64 {
+	if len(sorted) < 100 {
+		return nil
+	}
+	out := make([][2]float64, 0, len(LShapePcts))
+	for _, p := range LShapePcts {
+		out = append(out, [2]float64{p, round2(pctl(sorted, p))})
+	}
+	return out
+}
 
 func pctl(sorted []float64, p float64) float64 {
 	if len(sorted) == 0 {

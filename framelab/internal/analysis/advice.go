@@ -173,7 +173,8 @@ func Advise(r *Result) []Advice {
 		for _, m := range r.Marks {
 			items = append(items, m.Clock+": "+m.Cause)
 		}
-		add("info", fmt.Sprintf("You pressed F10 %d time%s (\"I felt a stutter\")", len(r.Marks), plural(len(r.Marks))),
+		fk, _ := r.Meta.Keys()
+		add("info", fmt.Sprintf("You pressed %s %d time%s (\"I felt a stutter\")", fk, len(r.Marks), plural(len(r.Marks))),
 			"What happened in the 2 seconds before each press. The marks are the amber lines on the chart.", items...)
 	}
 
@@ -250,7 +251,7 @@ func Advise(r *Result) []Advice {
 
 	// ---- system RAM
 	if k.RamFreeMinMB > 0 && (k.RamFreeMinMB < 1024 || (k.CommitLimitMB > 0 && k.CommitPeakMB > 0.9*k.CommitLimitMB)) {
-		ramN, ramWorst := count(func(s *Spike) bool { return s.RamFreeMB > 0 && s.RamFreeMB < 500 })
+		ramN, ramWorst := count(func(s *Spike) bool { return s.Group != "crash" && s.RamFreeMB > 0 && s.RamFreeMB < 500 })
 		level := "try"
 		if ramN > 0 || (k.CommitLimitMB > 0 && k.CommitPeakMB > 0.95*k.CommitLimitMB) {
 			level = "fix"
@@ -260,14 +261,24 @@ func Advise(r *Result) []Advice {
 			title += fmt.Sprintf(" (memory promised to programs: %s of the %s limit)", gb(k.CommitPeakMB), gb(k.CommitLimitMB))
 		}
 		detail := fmt.Sprintf("Normally %s was free while you played. ", gb(k.RamFreeTypMB))
+		if k.RamFreeMinMB >= 2048 {
+			// 2.31: plenty of RAM free, only the commit limit was close: say that, not "RAM ran out"
+			title = fmt.Sprintf("Memory promised to programs came close to Windows' limit: %s of %s", gb(k.CommitPeakMB), gb(k.CommitLimitMB))
+			detail = fmt.Sprintf("RAM itself still had %s free at the lowest. The limit is RAM plus the page file: programs reserve memory they may never use, and when the reservations reach the limit new requests fail and the game can crash. ", gb(k.RamFreeMinMB))
+		}
 		if ramN > 0 {
 			detail += fmt.Sprintf("%d stutter%s (worst %.0f ms) came with less than 500 MB free. ", ramN, plural(ramN), ramWorst)
 		}
 		if len(hurt) > 0 {
 			detail += "Here it happened during the screen resets above: fixing those fixes this. "
 		}
-		detail += "When RAM runs out Windows moves memory to the page file and everything waits; at the limit, memory requests fail and the game can crash. " +
-			"Closing browsers and launchers while playing helps; a bigger page file (a Windows setting) raises the limit."
+		if k.RamFreeMinMB < 1024 {
+			detail += "When RAM runs out Windows moves memory to the page file and everything waits; at the limit, memory requests fail and the game can crash. "
+		}
+		if r.Crash != nil {
+			detail += "Only the time before the crash counts here (the crash report and the driver reset use memory too). "
+		}
+		detail += "Closing browsers and launchers while playing helps; a bigger page file (a Windows setting) raises the limit."
 		add(level, title, detail)
 	}
 
@@ -360,9 +371,11 @@ func Advise(r *Result) []Advice {
 	}
 
 	// ---- long freezes nothing in the game explains
-	var disk, core, vr, dpc, shared, pages float64
+	var disk, core, vr, dpc, shared, pages, unRead, unDef float64
 	unN, unWorst := count(func(s *Spike) bool {
 		if s.Group == "unexplained" && s.Ms >= 150 {
+			unRead = math.Max(unRead, s.ReadMaxMs)
+			unDef += s.DefenderMB
 			dpc = math.Max(dpc, s.DpcPct)
 			shared = math.Max(shared, s.SharedMB)
 			pages = math.Max(pages, s.PagesSec)
@@ -412,11 +425,18 @@ func Advise(r *Result) []Advice {
 		if r.Windows != nil && r.Windows.Recorded {
 			next = "The Windows events don't show a driver or paging at those moments either, so it is most likely memory moving between VRAM and RAM, or work inside the game nothing here can see. "
 		}
+		test := "Worth a test in Experiments: clearing standby memory before playing."
+		if unRead >= SlowReadMs || unDef >= 1 {
+			test = fmt.Sprintf("Disk reads were slow then (longest %.0f ms). Worth a test in Experiments: a Defender exclusion for the game folder, and clearing standby memory before playing.", unRead)
+			if unDef >= 1 {
+				test = fmt.Sprintf("Microsoft Defender was reading from disk at those moments (%.0f MB). Worth a test in Experiments: a Defender exclusion for the game folder, and clearing standby memory before playing.", unDef)
+			}
+		}
 		add("try", fmt.Sprintf("%d long freeze%s (worst %.0f ms) with nothing inside the game to show for it", unN, plural(unN), unWorst),
-			fmt.Sprintf("At those moments: disk reads up to %.0f MB/s, the busiest CPU core at %.0f%%, VRAM at %.0f%% of the budget. "+
+			fmt.Sprintf("At those moments: the game reading up to %.0f MB/s, the busiest CPU core at %.0f%%, VRAM at %.0f%% of the budget. "+
 				"That points at Windows rather than a mod: memory being moved between VRAM and RAM, a driver holding the CPU, or the disk. "+
-				"%sWorth a test in Experiments: a Defender exclusion for the game folder, and clearing standby memory before playing.",
-				disk, core, vr*100, next))
+				"%s%s",
+				disk, core, vr*100, next, test))
 	}
 
 	// ---- Windows event recorder
@@ -508,7 +528,8 @@ func Advise(r *Result) []Advice {
 		if top >= 3 {
 			level = "try"
 		}
-		add(level, "Script mods that cost the most in your F11 part",
+		_, mk := r.Meta.Keys()
+		add(level, "Script mods that cost the most in your "+mk+" part",
 			"This is steady work on every frame, not stutter. A mod that runs where it has nothing to do (far from its place, or every frame instead of now and then) is the one to look at, or to switch off for one test session and compare.",
 			items...)
 	}
@@ -525,17 +546,66 @@ func Advise(r *Result) []Advice {
 		}
 	}
 
-	// ---- disk
-	dN, dMax := 0, 0.0
+	// ---- disk (2.31: heavy reads alone are the game streaming; only slow reads blame the drive)
+	dN, dMax, slowN, slowMax, defN := 0, 0.0, 0, 0.0, 0
+	winRec := r.Windows != nil && r.Windows.Recorded
 	for _, s := range r.Spikes {
-		if s.DiskMBs >= 200 {
+		if s.Group == "disk" {
 			dN++
 			dMax = math.Max(dMax, s.DiskMBs)
 		}
+		if s.ReadMaxMs >= SlowReadMs {
+			slowN++
+			slowMax = math.Max(slowMax, s.ReadMaxMs)
+		}
+		if s.DefenderMB >= 1 {
+			defN++
+		}
 	}
-	if dN > 0 {
-		add("try", fmt.Sprintf("Heavy disk reads during %d stutter%s (up to %.0f MB/s)", dN, plural(dN), dMax),
-			"The game was streaming from disk at the time. Keep the game on the fastest NVMe drive; a Defender exclusion for the game folder (Experiments) stops Windows scanning those files as they are read.")
+	defTip := "a Defender exclusion for the game folder (Experiments) stops Windows scanning those files as they are read."
+	switch {
+	case slowN > 0:
+		det := fmt.Sprintf("Windows saw the game wait on the drive: one read took %.0f ms, where a healthy SSD answers in a few ms at most. Keep the game on the fastest NVMe drive with some free space; %s", slowMax, defTip)
+		if defN > 0 {
+			det += fmt.Sprintf(" Microsoft Defender was reading from disk during %d of the stutters.", defN)
+		}
+		add("try", fmt.Sprintf("Slow disk reads during %d stutter%s", slowN, plural(slowN)), det)
+	case defN > 0:
+		add("try", fmt.Sprintf("Microsoft Defender was reading from disk during %d stutter%s", defN, plural(defN)),
+			"The game's own reads were fast, but Defender was scanning at the same time; "+defTip)
+	case dN > 0 && winRec:
+		add("info", fmt.Sprintf("The game was streaming in a lot of data during %d stutter%s (up to %.0f MB/s)", dN, plural(dN), dMax),
+			fmt.Sprintf("The drive kept up: no read took over %.0f ms. Those stutters come from the game handling that data (unpacking it, building the world and textures from it), not from waiting on the disk, so a faster drive or a Defender exclusion won't change them.", SlowReadMs))
+	case dN > 0:
+		add("info", fmt.Sprintf("The game was streaming in a lot of data during %d stutter%s (up to %.0f MB/s)", dN, plural(dN), dMax),
+			"Heavy reads on their own are normal streaming, not a slow drive. Windows' read times weren't recorded in this session (Windows events in Settings, Frame Lab as administrator), so Frame Lab can't tell whether the drive itself was slow.")
+	}
+
+	// ---- the same files loaded again and again (2.31)
+	if n := r.ReloadStutters; n > 0 && len(r.Reloaded) > 0 {
+		var items []string
+		for i, f := range r.Reloaded {
+			if i == 8 {
+				break
+			}
+			name := f.Name
+			if name == "" && f.Mod != "" {
+				name = "a file from " + f.Mod
+			} else if name == "" {
+				name = "a base-game file (" + f.Label + ")"
+			}
+			items = append(items, fmt.Sprintf("%s: loaded in %d stutters", name, f.Spikes))
+		}
+		files := fmt.Sprintf("%d file%s", len(r.Reloaded), plural(len(r.Reloaded)))
+		if r.ReloadVramFull*2 >= n {
+			add("fix", fmt.Sprintf("The same %s loaded again and again (in %d stutters): VRAM is too full to keep them", files, n),
+				fmt.Sprintf("VRAM was at 90%% of its budget or more in %d of those stutters, so the game drops these files to make room and loads them again when they're needed. Freeing VRAM (see the VRAM item) stops the reloading.", r.ReloadVramFull),
+				items...)
+		} else {
+			add("info", fmt.Sprintf("The same %s loaded again in %d stutters", files, n),
+				"VRAM wasn't near its budget then, so VRAM running out isn't the reason. More likely the game unloads an area and loads it again as you move back and forth.",
+				items...)
+		}
 	}
 
 	// ---- GPU

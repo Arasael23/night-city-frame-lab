@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"framelab/internal/gamefs"
 	"framelab/internal/modmap"
 )
 
@@ -145,7 +146,7 @@ func Check(o Options) *Report {
 	t0 := time.Now()
 	r := &Report{Build: o.Build, Game: o.Game, Generated: t0, Session: o.Session,
 		Archives: []Archive{}, Pairs: []Pair{}, Scripts: []Script{}, Tweaks: []Tweak{}, Logs: []LogSource{}}
-	if _, err := os.Stat(filepath.Join(o.Game, "bin", "x64")); err != nil {
+	if _, err := gamefs.Stat(filepath.Join(o.Game, "bin", "x64")); err != nil {
 		r.Notes = append(r.Notes, "Game folder not found: "+o.Game)
 		return r
 	}
@@ -166,7 +167,7 @@ func Check(o Options) *Report {
 func LoadOrder(game string) (order []string, how string) {
 	modDir := filepath.Join(game, "archive", "pc", "mod")
 	var loose []string
-	if ents, err := os.ReadDir(modDir); err == nil {
+	if ents, err := gamefs.ReadDir(modDir); err == nil {
 		for _, e := range ents {
 			if !e.IsDir() && strings.EqualFold(filepath.Ext(e.Name()), ".archive") {
 				loose = append(loose, e.Name())
@@ -175,7 +176,7 @@ func LoadOrder(game string) (order []string, how string) {
 	}
 	sort.Strings(loose)
 	how = "alphabetical (ASCII) in archive/pc/mod, first loaded wins"
-	if b, err := os.ReadFile(filepath.Join(modDir, "modlist.txt")); err == nil {
+	if b, err := gamefs.ReadFile(filepath.Join(modDir, "modlist.txt")); err == nil {
 		seen := map[string]bool{}
 		have := map[string]string{}
 		for _, n := range loose {
@@ -204,7 +205,7 @@ func LoadOrder(game string) (order []string, how string) {
 		order = append(order, "archive/pc/mod/"+n)
 	}
 	var red []string
-	if ents, err := os.ReadDir(filepath.Join(game, "mods")); err == nil {
+	if ents, err := gamefs.ReadDir(filepath.Join(game, "mods")); err == nil {
 		for _, e := range ents {
 			if e.IsDir() {
 				red = append(red, e.Name())
@@ -213,7 +214,7 @@ func LoadOrder(game string) (order []string, how string) {
 	}
 	sort.Strings(red)
 	for _, m := range red {
-		ents, _ := os.ReadDir(filepath.Join(game, "mods", m, "archives"))
+		ents, _ := gamefs.ReadDir(filepath.Join(game, "mods", m, "archives"))
 		var as []string
 		for _, e := range ents {
 			if !e.IsDir() && strings.EqualFold(filepath.Ext(e.Name()), ".archive") {
@@ -270,7 +271,7 @@ func checkArchives(r *Report, o Options) {
 			}
 			if f == nil {
 				var err error
-				if f, err = os.Open(filepath.Join(o.Game, filepath.FromSlash(r.Archives[i].Rel))); err != nil {
+				if f, err = gamefs.Open(filepath.Join(o.Game, filepath.FromSlash(r.Archives[i].Rel))); err != nil {
 					break
 				}
 			}

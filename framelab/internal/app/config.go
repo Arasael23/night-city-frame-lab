@@ -11,11 +11,12 @@ import (
 	"sync"
 )
 
-const Version = "2.0.1"
+const Version = "2.31.0"
 
 type BuildCfg struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
+	MO2  string `json:"mo2,omitempty"` // Mod Organizer 2 instance folder (the one with ModOrganizer.ini) when MO2 runs this build (2.5)
 }
 
 type Config struct {
@@ -28,6 +29,8 @@ type Config struct {
 	TrackFrameType bool       `json:"track_frame_type"`
 	UseScripts     bool       `json:"use_script_profilers"`
 	NoWinEvents    bool       `json:"no_windows_events,omitempty"` // Windows event recorder off (on by default)
+	FeltKey        int        `json:"felt_key,omitempty"`          // "I felt a stutter" key, Windows key code (0 = F10) (2.5)
+	MarkKey        int        `json:"mark_key,omitempty"`          // "mark a part" key = HitchRecorder's capture key (0 = F11) (2.5)
 }
 
 // Paths of the app's own folders (portable: everything lives next to the exe).
@@ -59,7 +62,7 @@ func defaultConfig(p Paths) *Config {
 	c.Builds = []BuildCfg{}
 	// first start: every Cyberpunk 2077 install that can be found (Settings > Find game installs adds more later)
 	for _, f := range detectBuilds(nil) {
-		c.Builds = append(c.Builds, BuildCfg{f.Name, f.Path})
+		c.Builds = append(c.Builds, BuildCfg{Name: f.Name, Path: f.Path})
 	}
 	return c
 }
@@ -87,6 +90,7 @@ func LoadSettings(p Paths) *Settings {
 	if s.cfg.Active < 0 || s.cfg.Active >= len(s.cfg.Builds) {
 		s.cfg.Active = 0
 	}
+	registerViews(*s.cfg)
 	return s
 }
 
@@ -110,7 +114,16 @@ func (s *Settings) Set(c Config) error {
 	if c.SpikeMs < 10 {
 		c.SpikeMs = 50
 	}
+	if err := checkKeys(&c); err != nil {
+		return err
+	}
+	for i := range c.Builds {
+		if err := checkMO2(&c.Builds[i]); err != nil {
+			return err
+		}
+	}
 	s.cfg = &c
+	registerViews(c)
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetIndent("", "  ")
@@ -124,6 +137,7 @@ type Components struct {
 	PresentMon string // exe path or ""
 	HitchPkg   string // folder holding red4ext\plugins\HitchRecorder (to install from), or ""
 	Markers    string // FrameLab.Markers.reds (loading-screen markers for a session), or ""
+	Markers25  string // the same for game 2.5 and later (the game itself has LoadingScreenProgressBarController.OnUninitialize there)
 }
 
 func firstExisting(paths ...string) string {
@@ -155,5 +169,6 @@ func FindComponents(p Paths, c Config) Components {
 		globNewest(`C:\Program Files\Intel\PresentMon\PresentMon-*.exe`))
 	out.HitchPkg = firstExisting(filepath.Join(p.Components, "HitchRecorder"))
 	out.Markers = firstExisting(filepath.Join(p.Components, "FrameLabMarkers", "FrameLab.Markers.reds"))
+	out.Markers25 = firstExisting(filepath.Join(p.Components, "FrameLabMarkers", "FrameLab.Markers.2.5.reds"))
 	return out
 }

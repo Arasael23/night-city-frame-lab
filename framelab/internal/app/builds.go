@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"framelab/internal/gamefs"
 )
 
 type HitchInfo struct {
@@ -46,7 +48,7 @@ func HitchStatus(game string) HitchInfo {
 			}
 		}
 	}
-	ents, _ := os.ReadDir(filepath.Join(dir, "recordings"))
+	ents, _ := gamefs.ReadDir(filepath.Join(dir, "recordings")) // MO2: new files go to its overwrite folder
 	for _, e := range ents {
 		if info, err := e.Info(); err == nil && !e.IsDir() {
 			if strings.HasSuffix(e.Name(), ".bin") {
@@ -67,7 +69,9 @@ type BuildState struct {
 	Hitch       HitchInfo `json:"hitch"`
 	CET         bool      `json:"cet"` // CET in the build: CET Lua layer + loading-screen markers
 	ModArchives int       `json:"mod_archives"`
-	Leftover    bool      `json:"leftover"` // HitchRecorder / markers in the build outside a session
+	Leftover    bool      `json:"leftover"`      // HitchRecorder / markers in the build outside a session
+	MO2         string    `json:"mo2,omitempty"` // MO2 instance running the build: "<instance> · <profile> · N mods" (2.5)
+	MO2Error    string    `json:"mo2_error,omitempty"`
 }
 
 var (
@@ -117,8 +121,16 @@ func BuildStates(c Config) []BuildState {
 			bs.Hitch = HitchStatus(b.Path)
 			bs.Leftover = SessionPartsLeft(b.Path)
 			bs.CET = HasCET(b.Path)
-			m, _ := filepath.Glob(filepath.Join(b.Path, "archive", "pc", "mod", "*.archive"))
+			m, _ := gamefs.Glob(filepath.Join(b.Path, "archive", "pc", "mod", "*.archive"))
 			bs.ModArchives = len(m)
+			if inst, err := gamefs.Status(b.Path); inst != nil {
+				bs.MO2 = fmt.Sprintf("%s · profile %s · %d mods on", inst.Name, inst.Profile, inst.Enabled)
+				if err != nil {
+					bs.MO2Error = err.Error()
+				}
+			} else if err != nil {
+				bs.MO2Error = err.Error()
+			}
 		}
 		out = append(out, bs)
 	}
@@ -127,5 +139,20 @@ func BuildStates(c Config) []BuildState {
 
 // HasCET: Cyber Engine Tweaks is in the build (HitchRecorder can time its mods; the markers need it).
 func HasCET(game string) bool {
-	return fileExists(filepath.Join(game, "bin", "x64", "plugins", "cyber_engine_tweaks.asi"))
+	return gamefs.IsFile(filepath.Join(game, "bin", "x64", "plugins", "cyber_engine_tweaks.asi"))
+}
+
+// gameAtLeast25: the game exe's product version is 2.5 or newer (2.3.1.0 is the game's 2.31).
+func gameAtLeast25(exe string) bool {
+	b, err := os.ReadFile(exe)
+	if err != nil {
+		return false
+	}
+	i := bytes.LastIndex(b, []byte{0xBD, 0x04, 0xEF, 0xFE})
+	if i < 0 || i+24 > len(b) {
+		return false
+	}
+	ms := binary.LittleEndian.Uint32(b[i+16:]) // dwProductVersionMS
+	major, minor := ms>>16, ms&0xFFFF
+	return major > 2 || (major == 2 && minor >= 5)
 }

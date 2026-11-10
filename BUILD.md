@@ -1,4 +1,4 @@
-# Building Night City Frame Lab 2.0.1
+# Building Night City Frame Lab 2.31.0
 
 The release is cross-compiled on Linux. On Windows, use WSL with Ubuntu 24.04 and follow the same steps.
 
@@ -26,9 +26,9 @@ This produces `out/NightCityFrameLab.exe`, `out/GPU check.exe` and `out/HitchRec
 
 | File | SHA-256 |
 |---|---|
-| NightCityFrameLab.exe | `c98346ff84fa6849a425c0484f05d2b1583505e99a51a2bbf776c559a60602bf` |
-| GPU check.exe | `a2fa3d8587385d07427f24a2962184ff5e93d19332f03e4b98fabfec36b4d4a8` |
-| HitchRecorder.dll | `a5b39c969bf2937c51ae1bd862423dfa201cea62ac7e5c33eec29bc451032588` |
+| NightCityFrameLab.exe | `953a83b1d2aab36ae317208b2b4c798be4c5d547ae35028bfcbfd39bb6d304ba` |
+| GPU check.exe | `4d53a5f58e7fa66cb57de37aabc11560e9528bdc983c62604aa1adc3c6a55cbe` |
+| HitchRecorder.dll | `d749031b9b53f67df017d60a62ad903950260fb94ba4ec75504391b44ad7dd1f` |
 
 What `build.sh` runs:
 
@@ -39,7 +39,7 @@ cd framelab && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
   go build -mod=vendor -trimpath -buildvcs=false -ldflags "-H windowsgui -s -w" -o ../out/NightCityFrameLab.exe ./cmd/framelab
 
 # HitchRecorder
-x86_64-w64-mingw32-gcc -O2 -std=gnu11 -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type \
+x86_64-w64-mingw32-gcc -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -O2 -std=gnu11 -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type \
   -shared -o out/HitchRecorder.dll \
   hitchrecorder/src/HitchRecorder.c hitchrecorder/third_party/minhook/src/{hook.c,buffer.c,trampoline.c,hde/hde64.c} \
   -I hitchrecorder/third_party/minhook/include \
@@ -63,8 +63,8 @@ included: users install it themselves from pawnio.eu. Then:
 ./build.sh package
 ```
 
-`out/Night City Frame Lab 2.0.1.zip` then has SHA-256
-`80f39b015dd5c26f76e049a3d7bf210dfd4a1ab1a0badbdc57176310ffa7dd8f` (file times are fixed so the zip is reproducible).
+`out/Night City Frame Lab 2.31.0.zip` then has SHA-256
+`1d991f7fb63ea0c6088a495635bb157f3737d6fec80a262999bcd63c6b4fb299` (file times are fixed so the zip is reproducible).
 
 ## Third-party code
 

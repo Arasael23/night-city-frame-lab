@@ -35,8 +35,8 @@
 #include "MinHook.h"
 
 #define HR_VERSION_MAJOR 1
-#define HR_VERSION_MINOR 0
-#define HR_VERSION_PATCH 0
+#define HR_VERSION_MINOR 1
+#define HR_VERSION_PATCH 1
 #define HR_STR2(x) #x
 #define HR_STR(x) HR_STR2(x)
 /* found by Night City Frame Lab to show which version is installed */
@@ -344,7 +344,7 @@ static uintptr_t hkEntAttach(void* ent, uintptr_t a2)
    functions it calls count as its own time). Only on while scripts are being recorded (F11 parts
    in session mode), otherwise the hook is a flag test and a jump. */
 #define H_BINDFUNC   777921665u   /* binds a script function to its source file (redscript-dap uses the same) */
-#define H_SCRIPTEXEC 588193222u   /* bytecode interpreter entry for one scripted function body (2.31) */
+#define H_SCRIPTEXEC 588193222u   /* bytecode interpreter entry for one scripted function body (2.31, 2.5.0) */
 
 #define MAX_OWNERS 2048
 #define OWNER_NAME 64
@@ -379,17 +379,61 @@ static inline uint16_t fmap_get(const void* f)
 }
 
 /* bind time only (~100k calls at load): never trust a pointer from a struct layout we can't see */
-static int readable(const void* p, size_t n) { return p && !IsBadReadPtr(p, n); }
-static const char* cstring_at(const void* p, size_t off)
+/* bind time: the engine's own live objects (FunctionInfo, its SourceFileInfo, the path), as in 1.0.0.
+   (1.1.0 asked Windows about every read with VirtualQuery: far too slow for ~100k binds - the game froze while
+   loading scripts.) */
+static int readable(const void* p, size_t n)
 {
-    if (!readable(p, off + 0x20)) return NULL;
+    uintptr_t a = (uintptr_t)p;
+    return a >= 0x10000 && a + n < 0x7FFFFFFF0000ull && !IsBadReadPtr(p, n);
+}
+
+/* learning only (2.5.0, the first few thousand binds): pointer slots that may hold anything are checked without
+   touching memory. Windows is asked once per memory region and the answer is kept, so the same heap is never
+   asked about twice; free and reserved space is remembered too. */
+typedef struct { uintptr_t lo, hi; int ok; } VRange;
+#define VCACHE 512
+static VRange g_vc[VCACHE];
+static int g_vcN, g_vcNext, g_vcLast;
+static int probe_ok(const void* p, size_t n)
+{
+    uintptr_t a = (uintptr_t)p, end = a + n;
+    if (a < 0x10000 || end > 0x7FFFFFFF0000ull || end < a) return 0;
+    while (a < end) {
+        int i = g_vcLast;
+        if (!(i < g_vcN && a >= g_vc[i].lo && a < g_vc[i].hi)) {
+            for (i = 0; i < g_vcN; ++i) if (a >= g_vc[i].lo && a < g_vc[i].hi) break;
+            if (i == g_vcN) {
+                MEMORY_BASIC_INFORMATION mbi;
+                if (!VirtualQuery((const void*)a, &mbi, sizeof mbi)) return 0;
+                VRange r = { (uintptr_t)mbi.BaseAddress, (uintptr_t)mbi.BaseAddress + mbi.RegionSize, 0 };
+                r.ok = mbi.State == MEM_COMMIT && !(mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)) &&
+                       (mbi.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READ |
+                                       PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY));
+                if (r.hi <= a) return 0;
+                i = g_vcN < VCACHE ? g_vcN++ : (g_vcNext++ % VCACHE);
+                g_vc[i] = r;
+            }
+            g_vcLast = i;
+        }
+        if (!g_vc[i].ok) return 0;
+        a = g_vc[i].hi;
+    }
+    return 1;
+}
+static int mem_ok(const void* p, size_t n, int learn) { return learn ? probe_ok(p, n) : readable(p, n); }
+
+static const char* cstring_at_x(const void* p, size_t off, int learn)
+{
+    if (!mem_ok(p, off + 0x20, learn)) return NULL;
     const uint8_t* s = (const uint8_t*)p + off;
     uint32_t len = *(const uint32_t*)(s + 0x14);
     const char* t = len < 0x40000000u ? (const char*)s : *(const char* const*)s;
     uint32_t n = len & 0x3FFFFFFFu;
-    if (!t || n > 1024 || !readable(t, n + 1)) return NULL;
+    if (!t || n > 1024 || !mem_ok(t, n + 1, learn) || t[n] != 0) return NULL;   /* a real CString ends in a 0 at its length */
     return t;
 }
+static const char* cstring_at(const void* p, size_t off) { return cstring_at_x(p, off, 0); }
 
 static uint16_t owner_index(const char* name)
 {
@@ -433,16 +477,88 @@ static uint16_t owner_of_path(const char* path)
 
 typedef uintptr_t (*Bind_t)(void*, void*, void*);
 static Bind_t oBind;
+/* FunctionInfo layout. 2.31: bound function +0x18, SourceFileInfo* +0xC0 (path CString +0x28), size 0xD0.
+   2.5.0: the binder writes the bound function to +0x40 (checked in the 2.5.0 exe: the definitions now keep their
+   bound object at +0x40) and the struct is at least 0x100 long; where it keeps the SourceFileInfo is learnt from the first
+   binds: every pointer slot is tried for a struct holding a script path (*.reds / *.script) and the slot that
+   keeps giving one wins. Bind time only, every read checked first. */
+static size_t g_fnOff = 0x18, g_srcOff = 0xC0, g_pathOff = 0x28;
+static int g_srcLearn;                 /* 1 while the SourceFileInfo slot is still being learnt (2.5.0) */
+static uint32_t g_learnBinds;
+#define LEARN_FIRST 0x48
+#define LEARN_SLOTS 31                 /* 0x48 .. 0x138 (the 2.5.0 struct is at least 0x100 long; its end is not known) */
+static const uint8_t kPathOffs[] = { 0x28, 0x20, 0x30, 0x18, 0x38, 0x40, 0x10, 0x48 };
+static uint32_t g_vote[LEARN_SLOTS][sizeof kPathOffs];
+
+static int script_path(const char* s)
+{
+    if (!s) return 0;
+    size_t n = 0; int slash = 0;
+    for (; s[n] && n < 1024; ++n) {                /* cstring_at checked the bytes up to the ending 0 */
+        unsigned char c = (unsigned char)s[n];
+        if (c < 0x20 || c > 0x7E) return 0;
+        if (c == '\\' || c == '/') slash = 1;
+    }
+    if (!slash || n < 6) return 0;
+    return !_stricmp(s + n - 5, ".reds") || (n >= 8 && !_stricmp(s + n - 7, ".script"));
+}
+
+static uint64_t g_learnTicks;           /* time spent learning, capped at 1 s in total */
+static const char* learn_source(const void* info)
+{
+    const char* found = NULL;
+    uint64_t t0 = qpc();
+    for (int i = 0; i < LEARN_SLOTS; ++i) {
+        size_t off = LEARN_FIRST + 8 * (size_t)i;
+        if (off == g_fnOff) continue;
+        const void* p = (const void*)rd64(info, off);
+        if (((uintptr_t)p & 7) || !probe_ok(p, 0x70)) continue;
+        for (size_t k = 0; k < sizeof kPathOffs; ++k) {
+            const char* t = cstring_at_x(p, kPathOffs[k], 1);
+            if (script_path(t)) {
+                if (!found) found = t;
+                if (++g_vote[i][k] >= 64) {          /* this slot keeps pointing at a source file: use it from now on */
+                    g_srcOff = off; g_pathOff = kPathOffs[k]; g_srcLearn = 0;
+                    g_learnTicks += qpc() - t0;
+                    g_sdk->logger->InfoF(g_handle, "script source files: FunctionInfo+0x%X, path +0x%X (learnt from %u binds, %u ms)",
+                                         (unsigned)off, (unsigned)kPathOffs[k], g_learnBinds,
+                                         (unsigned)(g_learnTicks * 1000 / (uint64_t)g_freq.QuadPart));
+                    return found;
+                }
+                break;
+            }
+        }
+    }
+    g_learnTicks += qpc() - t0;
+    if (++g_learnBinds >= 5000 || g_learnTicks > (uint64_t)g_freq.QuadPart) {   /* not found: REDscript time stays "scripts without a source file" */
+        g_srcLearn = 0; g_srcOff = 0;
+        g_sdk->logger->WarnF(g_handle, "script source files not found in FunctionInfo (%u binds, %u ms); REDscript time per mod off",
+                             g_learnBinds, (unsigned)(g_learnTicks * 1000 / (uint64_t)g_freq.QuadPart));
+    }
+    return found;
+}
+
 static uintptr_t hkBind(void* self, void* info, void* arg)
 {
     uintptr_t r = oBind(self, info, arg);
-    if (!readable(info, 0xD0)) return r;
-    void* func = (void*)rd64(info, 0x18);
-    const void* src = (const void*)rd64(info, 0xC0);
-    if (func && src) {
-        fmap_put(func, owner_of_path(cstring_at(src, 0x28)));
-        InterlockedIncrement(&g_bound);
+    const char* path = NULL;
+    void* func;
+    if (g_srcLearn) {
+        if (!probe_ok(info, LEARN_FIRST + 8 * LEARN_SLOTS)) return r;
+        func = (void*)rd64(info, g_fnOff);
+        if (!func || ((uintptr_t)func & 7)) return r;
+        path = learn_source(info);
+    } else {
+        if (!g_srcOff || !readable(info, (g_srcOff > g_fnOff ? g_srcOff : g_fnOff) + 8)) return r;
+        func = (void*)rd64(info, g_fnOff);
+        if (!func || ((uintptr_t)func & 7)) return r;
+        const void* src = (const void*)rd64(info, g_srcOff);
+        if (!src) return r;
+        path = cstring_at(src, g_pathOff);
     }
+    if (!path) return r;                               /* no source file: stays "scripts without a source file" */
+    fmap_put(func, owner_of_path(path));
+    InterlockedIncrement(&g_bound);
     return r;
 }
 
@@ -1554,13 +1670,16 @@ static bool on_load(void)
     }
 
     R4SemVer v = g_sdk->runtime ? *g_sdk->runtime : (R4SemVer){0};
+    /* RED4ext reports game 2.31 as 2.3.1 and 2.5 as 2.5.0 */
+    const bool is231 = v.major == 2 && (v.minor == 31 || (v.minor == 3 && v.patch == 1));
+    const bool is250 = v.major == 2 && v.minor == 5 && v.patch == 0;
     if (g_cfg.loads) {
         attach(H_LOADREQ, (void*)hkLoadReq, (void**)&oLoadReq, HOOK_LOADREQ, "IssueLoadingRequest");
         uint32_t upd = 0;
-        /* only on 2.31: hash 3955625134 (2.5's OnUpdate) is a different function in 2.31,
-           so on any other version this one hook stays off until checked.
-           RED4ext reports game 2.31 as 2.3.1 (0.2.1 only accepted 2.31 and never hooked it). */
-        if (v.major == 2 && (v.minor == 31 || (v.minor == 3 && v.patch == 1))) upd = H_LOADERUPD_231;
+        /* per version: hash 3955625134 is OnUpdate on 2.5.0 (ArchiveXL 1.28, void(ResourceLoader*)) but a
+           different function in 2.31, which has its own hash; any other version stays off until checked */
+        if (is231) upd = H_LOADERUPD_231;
+        else if (is250) upd = H_LOADERUPD_25;
         if (upd) attach(upd, (void*)hkLoaderUpd, (void**)&oLoaderUpd, HOOK_LOADERUPD, "ResourceLoader::OnUpdate");
         else g_sdk->logger->WarnF(g_handle, "game %u.%u.%u: ResourceLoader::OnUpdate not hooked (unknown version)", v.major, v.minor, v.patch);
         attach(H_SERLOAD, (void*)hkSerLoad, (void**)&oSerLoad, HOOK_SERLOAD, "ResourceSerializer::Load");
@@ -1574,8 +1693,10 @@ static bool on_load(void)
         g_sbTicks = (uint64_t)g_freq.QuadPart / 20;      /* 50 ms */
     }
     if (g_cfg.scripts) {
-        /* the interpreter entry was checked against the 2.31 exe only */
-        if (v.major == 2 && (v.minor == 31 || (v.minor == 3 && v.patch == 1))) {
+        /* checked in the 2.31 and 2.5.0 exes: same bind (this, FunctionInfo*, arg) and interpreter entry
+           Execute(function, frame, result, resultType) */
+        if (is231 || is250) {
+            if (is250) { g_fnOff = 0x40; g_srcLearn = 1; }
             strcpy(g_ownerName[0], "game scripts");
             strcpy(g_ownerName[1], "scripts without a source file");
             if (g_tls != TLS_OUT_OF_INDEXES) {
@@ -1584,7 +1705,7 @@ static bool on_load(void)
                     attach(H_SCRIPTEXEC, (void*)hkExec, (void**)&oExec, HOOK_SCRIPT_EXEC, "script function execute");
             }
         } else {
-            g_sdk->logger->WarnF(g_handle, "game %u.%u.%u: REDscript timing not hooked (checked on 2.31 only)", v.major, v.minor, v.patch);
+            g_sdk->logger->WarnF(g_handle, "game %u.%u.%u: REDscript timing not hooked (checked on 2.31 and 2.5.0 only)", v.major, v.minor, v.patch);
         }
     }
 

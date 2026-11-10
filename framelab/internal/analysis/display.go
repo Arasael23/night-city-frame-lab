@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"framelab/internal/gamefs"
 )
 
 // Screen resets: the game re-applying full screen or rebuilding its screen buffers
@@ -45,7 +47,7 @@ func ReadDisplayLogs(game string, after time.Time) (ev []DisplayEvent, found boo
 	var rs []DisplayEvent
 	for _, name := range []string{"ReShade.log", "dxgi.log", "d3d12.log"} {
 		p := filepath.Join(x64, name)
-		if st, err := os.Stat(p); err == nil {
+		if st, err := gamefs.Stat(p); err == nil {
 			found = true
 			if !st.ModTime().Before(after) {
 				rs = append(rs, readReShadeLog(p, after)...)
@@ -53,7 +55,7 @@ func ReadDisplayLogs(game string, after time.Time) (ev []DisplayEvent, found boo
 		}
 	}
 	cetLog := filepath.Join(x64, "plugins", "cyber_engine_tweaks", "cyber_engine_tweaks.log")
-	if _, err := os.Stat(cetLog); err == nil {
+	if _, err := gamefs.Stat(cetLog); err == nil {
 		found = true
 	}
 	cet := readCETResizes(cetLog, after)
@@ -77,7 +79,7 @@ func ReadDisplayLogs(game string, after time.Time) (ev []DisplayEvent, found boo
 
 // ReShade's log has times without a date and is started fresh with each game run.
 func readReShadeLog(path string, after time.Time) []DisplayEvent {
-	f, err := os.Open(path)
+	f, err := gamefs.Open(path)
 	if err != nil {
 		return nil
 	}
@@ -143,7 +145,7 @@ func readReShadeLog(path string, after time.Time) []DisplayEvent {
 }
 
 func readCETResizes(path string, after time.Time) []DisplayEvent {
-	f, err := os.Open(path)
+	f, err := gamefs.Open(path)
 	if err != nil {
 		return nil
 	}

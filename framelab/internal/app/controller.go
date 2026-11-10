@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"framelab/internal/analysis"
+	"framelab/internal/gamefs"
 	"framelab/internal/modmap"
 	"framelab/internal/platform"
 )
@@ -63,6 +64,20 @@ type armedFile struct {
 	Markers bool      `json:"markers"`         // FrameLab.Markers.reds put in for this session
 	Quiet   []string  `json:"quiet,omitempty"` // services the quiet session stopped (started again at the end)
 	Time    time.Time `json:"time"`
+	FeltKey int       `json:"felt_key,omitempty"` // "I felt a stutter" key of this session (2.5; 0 = F10)
+	MarkKey int       `json:"mark_key,omitempty"` // "mark a part" key of this session (2.5; 0 = F11)
+}
+
+// keys of an armed session (older armed files: F10 / F11)
+func (a *armedFile) keys() (felt, mark int) {
+	felt, mark = a.FeltKey, a.MarkKey
+	if felt == 0 {
+		felt = DefaultFeltKey
+	}
+	if mark == 0 {
+		mark = DefaultMarkKey
+	}
+	return felt, mark
 }
 
 type Controller struct {
@@ -84,7 +99,8 @@ type Controller struct {
 	recTotal  time.Duration
 	focusAt   time.Time
 	focusTot  time.Duration
-	feltStop  chan struct{} // F10 watcher (2.0)
+	feltStop  chan struct{} // stutter key watcher (2.0)
+	markName  string        // name of the mark key of the running session (2.5)
 	feltN     int
 	analysing map[string]bool
 	logMu     sync.Mutex
@@ -222,8 +238,10 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 	c.busy = true
 	c.mu.Unlock()
 
+	feltKey, markKey := cfg.Keys()
+	fk, mk := KeyName(feltKey), KeyName(markKey)
 	meta := &analysis.Meta{ID: filepath.Base(dir), Title: title, Build: b.Name, Game: b.Path, Created: time.Now(),
-		QpcFreq: platform.QPCFreq(), SpikeMs: cfg.SpikeMs}
+		QpcFreq: platform.QPCFreq(), SpikeMs: cfg.SpikeMs, FeltKey: fk, MarkKey: mk}
 	gi := platform.GPU()
 	meta.GPU, meta.GpuVendor, meta.GpuSource, meta.GpuReads = gi.Name, gi.Vendor, gi.Source, gi.Reads
 	analysis.WriteMeta(dir, meta)
@@ -239,9 +257,10 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 			}
 		}()
 		comp := FindComponents(c.paths, cfg)
-		a := &armedFile{Session: dir, Game: b.Path, Build: b.Name, Time: time.Now(), Scripts: cfg.UseScripts, CET: HasCET(b.Path)}
+		a := &armedFile{Session: dir, Game: b.Path, Build: b.Name, Time: time.Now(), Scripts: cfg.UseScripts, CET: HasCET(b.Path),
+			FeltKey: feltKey, MarkKey: markKey}
 		// HitchRecorder + loading-screen markers go in for this one session only
-		hitch, markers, err := InstallSessionParts(comp, b.Path, cfg.UseScripts)
+		hitch, markers, err := InstallSessionParts(comp, b.Path, cfg.UseScripts, markKey, feltKey)
 		a.Hitch, a.Markers = hitch, markers
 		switch {
 		case err != nil:
@@ -288,9 +307,9 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 		case !cfg.UseScripts:
 			c.logf("info", "Script time per mod is switched off in Settings.")
 		case a.CET:
-			c.logf("ok", "REDscript and CET time per mod: measured by HitchRecorder in the parts you mark with F11.")
+			c.logf("ok", "REDscript and CET time per mod: measured by HitchRecorder in the parts you mark with %s.", mk)
 		default:
-			c.logf("ok", "REDscript time per mod: measured by HitchRecorder in the parts you mark with F11 (no CET in %s, so no CET layer).", b.Name)
+			c.logf("ok", "REDscript time per mod: measured by HitchRecorder in the parts you mark with %s (no CET in %s, so no CET layer).", mk, b.Name)
 		}
 		ab, _ := json.MarshalIndent(a, "", " ")
 		os.WriteFile(c.armedPath(), ab, 0o644)
@@ -299,7 +318,7 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 		c.st.State = StWaiting
 		c.st.Layers["redscript"], c.st.Layers["cet"] = a.Hitch && a.Scripts, a.Hitch && a.Scripts && a.CET
 		c.st.Layers["hitch"] = a.Hitch
-		c.step("info", "Ready. Start the game and play: everything records by itself until you quit. Press F11 at a spot that stutters to mark it (script time per mod is measured only in the marked parts), F11 again to end the mark. Press F10 whenever you feel a stutter. Quit the game when done.")
+		c.step("info", fmt.Sprintf("Ready. Start the game and play: everything records by itself until you quit. Press %s at a spot that stutters to mark it (script time per mod is measured only in the marked parts), %s again to end the mark. Press %s whenever you feel a stutter. Quit the game when done.", mk, mk, fk))
 		c.cancel = make(chan struct{})
 		cancel := c.cancel
 		c.busy = false // set-up done: Cancel works while waiting for the game (1.0 stayed busy here)
@@ -367,7 +386,9 @@ func (c *Controller) onGameStart(a *armedFile, g platform.GameProc) {
 	c.step("ok", fmt.Sprintf("Game started (pid %d): recording.", g.Pid))
 	c.feltStop = make(chan struct{})
 	c.feltN = 0
-	go c.feltLoop(a.Session, c.feltStop)
+	fv, mv := a.keys()
+	c.markName = KeyName(mv)
+	go c.feltLoop(a.Session, fv, c.feltStop)
 	c.mu.Unlock()
 
 	if s, err := platform.StartSampler(g.Pid, filepath.Join(a.Session, analysis.FileSamples)); err == nil {
@@ -465,13 +486,13 @@ func (c *Controller) onGameTick() {
 		if hs.Capturing && !c.st.Focus {
 			c.st.Focus = true
 			c.focusAt = time.Now()
-			c.step("ok", "F11: marking this part.")
+			c.step("ok", c.markKeyName()+": marking this part.")
 			go platform.Beep(true)
 		} else if !hs.Capturing && c.st.Focus {
 			c.st.Focus = false
 			c.focusTot += time.Since(c.focusAt)
 			c.focusAt = time.Time{}
-			c.step("info", "F11: mark ended. Recording goes on until you quit.")
+			c.step("info", c.markKeyName()+": mark ended. Recording goes on until you quit.")
 			go platform.Beep(false)
 		}
 	}
@@ -533,6 +554,7 @@ func (c *Controller) finish(a *armedFile, hitchBin string) {
 		hitchBin = newestFile(filepath.Join(hitchDir(a.Game), "recordings"), ".bin", a.Time)
 	}
 	if hitchBin != "" {
+		hitchBin = gamefs.Real(hitchBin) // MO2: the recording is in its overwrite folder (2.5)
 		if err := copyFile(hitchBin, filepath.Join(a.Session, analysis.FileHitch)); err == nil {
 			copyFile(strings.TrimSuffix(hitchBin, ".bin")+".log", filepath.Join(a.Session, analysis.FileHitchLog))
 			copyFile(strings.TrimSuffix(hitchBin, ".bin")+".owners.txt", filepath.Join(a.Session, analysis.FileHitchOwners))
@@ -544,7 +566,7 @@ func (c *Controller) finish(a *armedFile, hitchBin string) {
 	// loading-screen markers from CET's log
 	if a.Markers {
 		cetLog := filepath.Join(a.Game, "bin", "x64", "plugins", "cyber_engine_tweaks", "gamelog.log")
-		if marks, err := analysis.ParseCETLog(cetLog, a.Time.Add(-10*time.Second)); err != nil {
+		if marks, err := analysis.ParseCETLog(gamefs.Real(cetLog), a.Time.Add(-10*time.Second)); err != nil {
 			c.logf("warn", "No loading-screen markers (CET's gamelog.log: %v).", err)
 		} else {
 			analysis.WriteMarks(a.Session, marks)
@@ -641,15 +663,19 @@ func (c *Controller) Disarm() error {
 	c.mu.Unlock()
 	go func() {
 		c.restore(a)
-		// drop an empty session folder
-		if ents, _ := os.ReadDir(a.Session); len(ents) <= 1 {
-			os.RemoveAll(a.Session)
+		// nothing was recorded: drop the session folder (it only holds what Arm wrote)
+		dropped := false
+		if setupOnly(a.Session) {
+			dropped = removeDir(a.Session)
 		}
 		c.mu.Lock()
 		c.busy = false
 		if c.armed == nil {
 			c.st.State = StIdle
 			c.step("ok", "Everything is back as it was.")
+			if dropped {
+				c.step("info", "Nothing was recorded, so the empty session was removed.")
+			}
 		} else {
 			c.st.State = StError
 			c.st.Error = "Restore did not complete; see the steps above."
@@ -657,6 +683,44 @@ func (c *Controller) Disarm() error {
 		c.mu.Unlock()
 	}()
 	return nil
+}
+
+// setupOnly: the session folder holds only what Arm writes (session.json, snapshot.json), so nothing was recorded.
+func setupOnly(dir string) bool {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range ents {
+		switch e.Name() {
+		case analysis.FileMeta, analysis.FileMeta + ".tmp", analysis.FileSnapshot, analysis.FileAnalysis:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// removeDir deletes a folder, retrying briefly (the snapshot may still be being written when a session is cancelled at once).
+func removeDir(dir string) bool {
+	for i := 0; i < 4; i++ {
+		os.RemoveAll(dir)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			return true
+		}
+		time.Sleep(time.Second)
+	}
+	return false
+}
+
+// ActiveSession: the session folder of the capture that is set up or running ("" when none).
+func (c *Controller) ActiveSession() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.armed == nil {
+		return ""
+	}
+	return c.armed.Session
 }
 
 // Shutdown is called when the window closes.
@@ -807,13 +871,12 @@ func (c *Controller) Analyse(id string) (*analysis.Result, error) {
 	meta, _ := analysis.ReadMeta(dir)
 	cfg := c.settings.Get()
 	env := analysis.Env{Names: modmap.NamesFile(filepath.Join(c.paths.Data, "names.txt.gz"))}
+	game := ""
 	if meta != nil && meta.Game != "" {
+		game = meta.Game
 		env.Mods = modmap.ScanBuild(meta.Game)
 	}
-	if cfg.Library != "" {
-		env.Library = modmap.LoadLibrary(cfg.Library, filepath.Join(c.paths.Data, "library_index.json"))
-		env.Library.AddManifest(filepath.Join(c.paths.Data, "library_manifest.json"))
-	}
+	env.Library = libraryFor(c.paths, cfg, game)
 	if meta != nil && cfg.SpikeMs > 0 && meta.SpikeMs != cfg.SpikeMs {
 		meta.SpikeMs = cfg.SpikeMs
 		analysis.WriteMeta(dir, meta)
@@ -854,8 +917,10 @@ func copyDir(src, dst string) error {
 	})
 }
 
+// newestFile: the newest file with this extension changed after 'after' (the file that is really
+// there: MO2 builds have new files in MO2's overwrite folder).
 func newestFile(dir, ext string, after time.Time) string {
-	ents, _ := os.ReadDir(dir)
+	ents, _ := gamefs.ReadDir(dir)
 	best, bestT := "", after
 	for _, e := range ents {
 		if e.IsDir() || !strings.EqualFold(filepath.Ext(e.Name()), ext) {
@@ -864,6 +929,9 @@ func newestFile(dir, ext string, after time.Time) string {
 		if info, err := e.Info(); err == nil && info.ModTime().After(bestT) {
 			best, bestT = filepath.Join(dir, e.Name()), info.ModTime()
 		}
+	}
+	if best != "" {
+		best = gamefs.Real(best)
 	}
 	return best
 }
@@ -882,11 +950,19 @@ func newestDir(dir, prefix string, after time.Time) string {
 	return best
 }
 
-// feltLoop: F10 = "I felt a stutter". Checked 25 times a second (a short tap is caught too); each
-// press goes to felt.txt as Unix ms and gets a short beep. Held down it counts once.
-func (c *Controller) feltLoop(session string, stop chan struct{}) {
-	const vkF10 = 0x79
-	platform.KeyHit(vkF10) // clear "pressed since the last call"
+func (c *Controller) markKeyName() string {
+	if c.markName == "" {
+		return KeyName(DefaultMarkKey)
+	}
+	return c.markName
+}
+
+// feltLoop: the stutter key (F10 unless changed in Settings) = "I felt a stutter". Checked 25 times a
+// second (a short tap is caught too); each press goes to felt.txt as Unix ms and gets a short beep.
+// Held down it counts once.
+func (c *Controller) feltLoop(session string, vk int, stop chan struct{}) {
+	name := KeyName(vk)
+	platform.KeyHit(vk) // clear "pressed since the last call"
 	tick := time.NewTicker(40 * time.Millisecond)
 	defer tick.Stop()
 	down := false
@@ -896,7 +972,7 @@ func (c *Controller) feltLoop(session string, stop chan struct{}) {
 			return
 		case <-tick.C:
 		}
-		hit := platform.KeyHit(vkF10)
+		hit := platform.KeyHit(vk)
 		if hit && !down {
 			at := float64(time.Now().UnixNano()) / 1e6
 			if f, err := os.OpenFile(filepath.Join(session, analysis.FileFelt), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
@@ -906,7 +982,7 @@ func (c *Controller) feltLoop(session string, stop chan struct{}) {
 			c.mu.Lock()
 			c.feltN++
 			n := c.feltN
-			c.step("ok", fmt.Sprintf("F10: stutter mark %d saved. The report shows what happened in the 2 seconds before it.", n))
+			c.step("ok", fmt.Sprintf("%s: stutter mark %d saved. The report shows what happened in the 2 seconds before it.", name, n))
 			c.mu.Unlock()
 			go platform.Beep(true)
 		}

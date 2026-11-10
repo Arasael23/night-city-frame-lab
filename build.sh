@@ -9,7 +9,7 @@
 #        ./build.sh package    -> also out/Night City Frame Lab <version>.zip (needs PresentMon, see BUILD.md)
 set -e
 cd "$(dirname "$0")"
-VERSION=2.0.1
+VERSION=2.31.0
 PM_FILE=PresentMon-2.6.0-x64.exe
 PM_SHA256=b2a706bc6ad475749e3b7e3409263aa1e6906d45bdcf993f6dbc0f660188f1af
 
@@ -28,7 +28,7 @@ rm -f framelab/cmd/framelab/rsrc_windows_amd64.syso
 
 # 2. HitchRecorder (RED4ext plugin, C + MinHook)
 MH=hitchrecorder/third_party/minhook
-x86_64-w64-mingw32-gcc -O2 -std=gnu11 -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type \
+x86_64-w64-mingw32-gcc -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -O2 -std=gnu11 -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type \
   -shared -o out/HitchRecorder.dll \
   hitchrecorder/src/HitchRecorder.c $MH/src/hook.c $MH/src/buffer.c $MH/src/trampoline.c $MH/src/hde/hde64.c \
   -I $MH/include \
@@ -54,12 +54,12 @@ cp out/NightCityFrameLab.exe release/README.txt "$D/"
 cp "out/GPU check.exe" "$C/"
 cp out/HitchRecorder.dll hitchrecorder/HitchRecorder.ini hitchrecorder/README.txt "$C/HitchRecorder/red4ext/plugins/HitchRecorder/"
 cp $MH/LICENSE.txt "$C/HitchRecorder/red4ext/plugins/HitchRecorder/THIRD_PARTY_MinHook_LICENSE.txt"
-cp markers/FrameLab.Markers.reds "$C/FrameLabMarkers/"
+cp markers/FrameLab.Markers.reds markers/FrameLab.Markers.2.5.reds "$C/FrameLabMarkers/"
 cp "$PM_FILE" "$C/PresentMon/"
 cp release/PresentMon-license.txt "$C/PresentMon/license.txt"
 cp release/THIRD_PARTY.txt "$C/"
 cp release/licences/* "$C/licences/"
-find out/pkg -exec touch -d "2026-11-07 00:00:00 UTC" {} +
+find out/pkg -exec touch -d "2026-11-10 00:00:00 UTC" {} +
 ( cd out/pkg && find "Night City Frame Lab" -type f | LC_ALL=C sort | TZ=UTC zip -X -D -q "../Night City Frame Lab $VERSION.zip" -@ )
 rm -rf out/pkg
 sha256sum "out/Night City Frame Lab $VERSION.zip"

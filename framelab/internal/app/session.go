@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
+	"framelab/internal/gamefs"
 	"framelab/internal/platform"
 )
 
@@ -18,10 +20,22 @@ import (
 func hitchDir(game string) string  { return filepath.Join(game, "red4ext", "plugins", "HitchRecorder") }
 func markerDir(game string) string { return filepath.Join(game, "r6", "scripts", "NightCityFrameLab") }
 
+// overwriteParts: in an MO2 build, the copies of the session parts in MO2's overwrite folder: the
+// recordings HitchRecorder wrote there, and its ini once the game rewrote it (SessionOnly), which
+// would otherwise sit on top of the next session's ini. Frame Lab's own folders only (2.5).
+func overwriteParts(game string) []string {
+	ow := gamefs.Overwrite(game)
+	if ow == "" {
+		return nil
+	}
+	return []string{filepath.Join(ow, "red4ext", "plugins", "HitchRecorder"), filepath.Join(ow, "r6", "scripts", "NightCityFrameLab")}
+}
+
 // sessionIni turns the bundled HitchRecorder.ini into the session one:
-// on, whole run recorded with F11 marking parts (CaptureMode=2), one game run only (SessionOnly=1),
-// REDscript and CET time per mod in the F11 parts or not (Settings).
-func sessionIni(src string, scripts bool) string {
+// on, whole run recorded with the mark key marking parts (CaptureMode=2), one game run only (SessionOnly=1),
+// REDscript and CET time per mod in the marked parts or not (Settings), the mark key from Settings (2.5).
+// HitchRecorder's own marker key (Scroll Lock) is switched off when Settings uses that key for something else.
+func sessionIni(src string, scripts bool, markKey, feltKey int) string {
 	set := func(s, key, val string) string {
 		re := regexp.MustCompile(`(?m)^` + key + `=.*$`)
 		if re.MatchString(s) {
@@ -38,14 +52,26 @@ func sessionIni(src string, scripts bool) string {
 	}
 	s = set(s, "RecordScripts", on)
 	s = set(s, "RecordCET", on)
+	if markKey == 0 {
+		markKey = DefaultMarkKey
+	}
+	s = set(s, "CaptureKey", strconv.Itoa(markKey))
+	if own := regexp.MustCompile(`(?m)^MarkKey=\s*(\d+)`).FindStringSubmatch(s); own != nil {
+		if v, _ := strconv.Atoi(own[1]); v != 0 && (v == markKey || v == feltKey) {
+			s = set(s, "MarkKey", "0")
+		}
+	}
 	return s
 }
 
 // InstallSessionParts copies HitchRecorder (session settings) and the marker script into the build.
 // Anything already there is removed first. The game must be closed.
-func InstallSessionParts(comp Components, game string, scripts bool) (hitch, markers bool, err error) {
+func InstallSessionParts(comp Components, game string, scripts bool, markKey, feltKey int) (hitch, markers bool, err error) {
 	if len(platform.FindGame()) > 0 {
 		return false, false, errors.New("close the game first")
+	}
+	for _, d := range overwriteParts(game) {
+		os.RemoveAll(d)
 	}
 	if comp.HitchPkg != "" {
 		src := filepath.Join(comp.HitchPkg, "red4ext", "plugins", "HitchRecorder")
@@ -70,7 +96,7 @@ func InstallSessionParts(comp Components, game string, scripts bool) (hitch, mar
 				if err != nil {
 					return true, false, err
 				}
-				if err := os.WriteFile(to, []byte(sessionIni(string(b), scripts)), 0o644); err != nil {
+				if err := os.WriteFile(to, []byte(sessionIni(string(b), scripts, markKey, feltKey)), 0o644); err != nil {
 					return true, false, err
 				}
 				continue
@@ -87,7 +113,11 @@ func InstallSessionParts(comp Components, game string, scripts bool) (hitch, mar
 		if err := os.MkdirAll(dst, 0o755); err != nil {
 			return hitch, false, err
 		}
-		if err := copyFile(comp.Markers, filepath.Join(dst, "FrameLab.Markers.reds")); err != nil {
+		src := comp.Markers
+		if comp.Markers25 != "" && gameAtLeast25(filepath.Join(game, "bin", "x64", "Cyberpunk2077.exe")) {
+			src = comp.Markers25 // 2.31's script would add a method 2.5 already has (redscript warns it may break at runtime)
+		}
+		if err := copyFile(src, filepath.Join(dst, "FrameLab.Markers.reds")); err != nil {
 			return hitch, false, err
 		}
 		markers = true
@@ -101,7 +131,7 @@ func RemoveSessionParts(game string) error {
 		return errors.New("close the game first")
 	}
 	var errs []string
-	for _, d := range []string{hitchDir(game), markerDir(game)} {
+	for _, d := range append([]string{hitchDir(game), markerDir(game)}, overwriteParts(game)...) {
 		if err := os.RemoveAll(d); err != nil {
 			errs = append(errs, err.Error())
 		}

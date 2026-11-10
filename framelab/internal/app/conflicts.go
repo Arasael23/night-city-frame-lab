@@ -73,9 +73,8 @@ func (s *Server) checkConflicts(i int) error {
 	conflictMu.Unlock()
 	go func() {
 		o := conflicts.Options{Build: b.Name, Game: b.Path, Names: modmap.NamesFile(filepath.Join(s.Paths.Data, "names.txt.gz"))}
-		if cfg.Library != "" {
-			o.Library = modmap.LoadLibrary(cfg.Library, filepath.Join(s.Paths.Data, "library_index.json"))
-			o.Library.AddManifest(filepath.Join(s.Paths.Data, "library_manifest.json"))
+		if lib := libraryFor(s.Paths, cfg, b.Path); lib != nil {
+			o.Library = lib
 		}
 		o.Loaded, o.Session = s.loadedInLastSession(b.Path)
 		r := conflicts.Check(o)

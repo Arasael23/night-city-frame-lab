@@ -2,11 +2,12 @@ package conflicts
 
 import (
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
+
+	"framelab/internal/gamefs"
 )
 
 // REDscript: @replaceMethod(Class) / @replaceGlobal() swap a game function for the mod's own. When two
@@ -50,11 +51,11 @@ type scriptHit struct {
 func checkScripts(r *Report, o Options) {
 	root := filepath.Join(o.Game, "r6", "scripts")
 	hits := map[string][]scriptHit{}
-	filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+	gamefs.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.EqualFold(filepath.Ext(p), ".reds") {
 			return nil
 		}
-		b, err := os.ReadFile(p)
+		b, err := gamefs.ReadFile(p)
 		if err != nil {
 			return nil
 		}

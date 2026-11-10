@@ -1,4 +1,4 @@
-Night City Frame Lab 2.0.1
+Night City Frame Lab 2.31.0
 ==========================
 
 A stutter and performance recorder for Cyberpunk 2077 with mods. One window records the game with
@@ -8,7 +8,7 @@ every layer on the same clock, then explains each slow frame:
   - world streaming, file loading and entity spawns
   - REDscript mods and CET Lua mods (time per mod, in the parts you mark with F11)
   - VRAM full, or game memory spilled into system RAM
-  - disk reads, system RAM running out, the page file
+  - heavy streaming or slow disk reads, system RAM running out, the page file
   - a Windows driver holding the CPU (interrupts / DPCs)
   - the game resetting its screen (full screen re-applied, screen buffers rebuilt)
   - a GPU-heavy frame (path tracing load), the GPU at its power or heat limit
@@ -22,9 +22,10 @@ Requirements
   - RED4ext, for the engine recorder (HitchRecorder). Without it you still get frame times,
     GPU and PC readings and the Windows events.
   - Cyber Engine Tweaks (optional): loading-screen markers and CET Lua time per mod need it.
-  - Made and tested on game version 2.31 with an NVIDIA card (players report 2.5 works too). On
-    another game version the engine recorder leaves out the parts it can't find and says so in
-    its log.
+  - Game version 2.5 (2.31 still works). Frame Lab's own version numbers aren't game versions:
+    Frame Lab 2.31 is simply the update after 2.0, the number is a nod to the game's own. Tested
+    with an NVIDIA card. On another game version the engine recorder leaves out the parts it can't
+    find and says so in its log.
   - AMD and Intel cards (new in 1.1, beta): GPU readings come from AMD's driver (ADLX, part of
     AMD Software: Adrenalin Edition) on Radeon cards, and from Windows on any card. The Capture
     tab shows which readings your card gives. Why a card lowered its clocks (power limit, heat)
@@ -42,6 +43,12 @@ Install
   so on). Each folder is one "build". Settings > Find game installs looks again; Add a build takes
   any other folder (the one with bin\x64 in it).
 
+  Mod Organizer 2: MO2 keeps the mods in its own folder and only shows them to programs it starts,
+  so give each build MO2 runs its MO2 folder in Settings (the one with ModOrganizer.ini; Frame Lab
+  offers the instances it finds for that game). Frame Lab then reads the build the way the game
+  sees it: the active profile's mods in MO2's order, and the overwrite folder, where the game's
+  logs and HitchRecorder's recordings end up. Start the game through MO2 as usual.
+
 
 Record a session
   1. Capture tab: pick the build, name the session, press Start session (game closed).
@@ -49,7 +56,8 @@ Record a session
   3. Press F11 where it stutters to start a mark, F11 again ends it. Script time per mod
      (REDscript and CET) is measured only inside the marked parts, so this is how you find out
      which mod costs what. Press F10 whenever you feel a stutter: the report shows what happened
-     in the 2 seconds before each press (new in 2.0).
+     in the 2 seconds before each press (new in 2.0). Both keys can be changed in Settings >
+     In-game keys.
   4. Quit the game.
   5. Frame Lab collects everything, takes the recorders out again and opens the report.
   Loading screens and the main menu are shaded on the timeline and left out of the numbers.
@@ -59,6 +67,32 @@ Record a session
   per second, a list of the spikes with what overlapped each one, script cost per mod, engine work,
   shader builds, and "What to try": advice worked out from that session's own numbers.
   Compare puts two sessions side by side. Export HTML report saves one as a single file.
+
+  New in 2.31 (Frame Lab's version, for game version 2.5):
+  - Every chart has a button in its corner that opens it larger. There the mouse wheel zooms in
+    and out where the mouse is, dragging moves along the session, Ctrl + wheel zooms the height,
+    and double-click or Reset goes back to the whole session (keys: + - arrows 0 Esc).
+  - Settings > In-game keys: pick other keys for "mark a part" (F11) and "I felt a stutter" (F10).
+  - The L-shape: frame time at each percentile, from the median to the slowest 1 in 10,000
+    frames, with a percentile table. Older sessions get it when opened (if their recording is
+    still there).
+  - Compare takes up to six sessions: their L-shapes on one chart, fps bars, every number with
+    its change against the first (baseline) session, and what changed from each session to the
+    next, for following a bisect.
+  - Mod Organizer 2 builds (see Install).
+  - Game 2.5: the loading-screen marker script uses the game's own loading-screen hook there, so
+    redscript no longer warns about it. The engine recorder (HitchRecorder 1.1.1) records file
+    loading times on 2.5 too. REDscript time per mod isn't split on 2.5 yet (its log says so).
+  - Stutters where the game read a lot of data are called heavy streaming. The drive is only
+    blamed when Windows timed a read as slow (15 ms or more), and the Defender exclusion is only
+    suggested then, or when Defender itself was reading from disk at those moments.
+  - Files the game loaded again in three or more stutters are listed, with whether VRAM was
+    nearly full at those moments (the game dropping them to make room) or not.
+  - A session cancelled before the game started is removed again, and a session that can't be
+    analysed shows Open folder and Delete.
+  - After a crash, the RAM numbers stop at the game's last frame (the crash report and the driver
+    reset used memory after it, which made it look like RAM ran out). When RAM itself had plenty
+    free and only the memory limit (RAM + page file) was close, the advice now says that.
 
   2.0.1:
   - Overlays and recorders that hook into the game (the NVIDIA overlay and the like) no longer

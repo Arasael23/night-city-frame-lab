@@ -99,7 +99,7 @@ var expDefs = []ExpDef{
 		When:   "at once"},
 	{ID: "defender", Group: "memory", Name: "Defender exclusion for the game", Warn: true, Short: "risky",
 		What:   "Microsoft Defender stops scanning the game folder and Cyberpunk2077.exe.",
-		Expect: "Can cut stutter while the game streams files from disk (Defender checks files as they are read).",
+		Expect: "Helps only when a report shows slow disk reads or Defender reading during stutters (Defender checks files as they are read). With fast reads it changes nothing.",
 		Risk:   "Anything placed in the game folder isn't scanned (mods you download are still scanned in Downloads).",
 		When:   "at once"},
 	{ID: "cfg", Group: "memory", Name: "Turn off Control Flow Guard for the game", Warn: true, Short: "risky",
