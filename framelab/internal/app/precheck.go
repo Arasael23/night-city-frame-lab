@@ -136,11 +136,17 @@ func (s *Server) buildFactsOf(b BuildCfg) *buildFacts {
 			Mods []struct {
 				Nexus int `json:"nexus"`
 			} `json:"mods"`
+			Frameworks []optimise.Framework `json:"frameworks"` // saved apart from the mods: RED4ext, CET, redscript ...
 		}
 		if json.Unmarshal(bs, &r) == nil {
 			for _, m := range r.Mods {
 				if m.Nexus != 0 {
 					f.nexus[m.Nexus] = true
+				}
+			}
+			for _, fw := range r.Frameworks {
+				if fw.Installed && fw.Nexus != 0 {
+					f.nexus[fw.Nexus] = true
 				}
 			}
 		}
@@ -153,6 +159,11 @@ func (s *Server) buildFactsOf(b BuildCfg) *buildFacts {
 			for _, m := range r.Mods {
 				if m.Nexus != 0 {
 					f.nexus[m.Nexus] = true
+				}
+			}
+			for _, fw := range r.Frameworks {
+				if fw.Installed && fw.Nexus != 0 {
+					f.nexus[fw.Nexus] = true
 				}
 			}
 		}

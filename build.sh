@@ -14,7 +14,7 @@
 #                                 (needs PresentMon, and for 2.5E the WolvenKit console zip, see BUILD.md)
 set -e
 cd "$(dirname "$0")"
-VERSION=2.5.0
+VERSION=2.5.1
 # 2.5E: the E goes after the number (2.5.0E, 2.5.0E-test8)
 VERSION_E=$(echo "$VERSION" | sed "s/^\([0-9.]*\)/\1E/")
 PM_FILE=PresentMon-2.6.0-x64.exe
