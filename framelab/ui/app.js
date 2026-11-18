@@ -756,8 +756,9 @@ function renderReport(el, r, reportOnly) {
     </div>
     ${adviceHtml(r, reportOnly)}
     ${routesHtml(r)}
-    <div class="card chart-card"><div class="chart-top"><div class="legend"><span><i style="background:${css('--accent')}"></i>frame time</span>${hasGpu ? `<span><i style="background:${css('--orange')}"></i>GPU busy</span>` : '<span class="dimmer" title="PresentMon could not tell GPU time apart with frame generation on">GPU busy: not recorded (frame generation)</span>'}${legend}${(r.timeline.not_playing || []).length ? '<span><i style="background:rgba(150,150,145,0.45)"></i>loading / menu (left out)</span>' : ''}${(r.timeline.focus || []).length ? '<span><i style="background:rgba(47,196,185,0.35)"></i>' + esc(RK.mark) + ' marked</span>' : ''}${(r.timeline.resets || []).some(x => x.playing) ? `<span><i style="background:${css('--c-reset')}"></i>screen reset</span>` : ''}</div><button class="btn2 small" id="ch-all" style="display:none">Show all</button></div>
-      <div class="readout" id="ch-read">Drag across any chart to zoom in · double-click or <b>Show all</b> to zoom out · click a spike bar for its details · move the mouse over a chart to read the values here · the corner button opens a chart larger, to zoom with the mouse wheel and move it by dragging</div><div id="ch-main"></div></div>
+    <div class="card chart-card"><div class="chart-top"><div class="legend"><span><i style="background:${css('--accent')}"></i>frame time</span>${hasGpu ? `<span><i style="background:${css('--orange')}"></i>GPU busy</span>` : '<span class="dimmer" title="PresentMon could not tell GPU time apart with frame generation on">GPU busy: not recorded (frame generation)</span>'}${legend}${(r.timeline.not_playing || []).length ? '<span><i style="background:rgba(150,150,145,0.45)"></i>loading / menu (left out)</span>' : ''}${(r.timeline.focus || []).length ? '<span><i style="background:rgba(47,196,185,0.35)"></i>' + esc(RK.mark) + ' marked</span>' : ''}${(r.timeline.resets || []).some(x => x.playing) ? `<span><i style="background:${css('--c-reset')}"></i>screen reset</span>` : ''}</div><div class="ch-views" id="ch-views"><button class="btn2 small" data-chview="all">Whole session</button>${(r.timeline.not_playing || []).length ? '<button class="btn2 small" data-chview="play">From the first gameplay</button>' : ''}${(r.timeline.focus || []).length ? '<button class="btn2 small" data-chview="mark">Only the ' + esc(RK.mark) + ' mark</button>' : ''}</div></div>
+      <div class="range-stats" id="ch-range"></div>
+      <div class="readout" id="ch-read">Drag across any chart to zoom in · double-click or <b>Whole session</b> to zoom out (the line above has the numbers of the part on screen) · click a spike bar for its details · move the mouse over a chart to read the values here · the corner button opens a chart larger, to zoom with the mouse wheel and move it by dragging</div><div id="ch-main"></div></div>
     <div class="grid2" style="grid-template-columns:1.7fr 1fr"><div class="card chart-card"><div class="legend"><span><i style="background:${css('--accent')}"></i>frame time at each percentile: the L-shape (play only, loading and menus left out)</span></div>
       <div class="readout" id="ls-read">Flat and low is smooth. Where the line turns up shows how many frames were slow and by how much: the right end is the slowest 1 in 10,000.</div><div id="ch-lshape"></div></div>
       <div class="card"><h2>Percentiles</h2><div id="r-pct"></div></div></div>
@@ -983,6 +984,95 @@ function renderModTable(el, mods, limit) {
     '<div class="dim">No per-mod data in this session (no part marked with ' + esc(repKeys(REPORT || S.cur).mark) + ' or script time off, no mod files loaded).</div>';
 }
 
+// 2.5.2: the stretches the view buttons show. From the first gameplay: from the first moment of play
+// (after the save has loaded) to the last one. Only the mark: from the first mark to the end of the last.
+function chartViews(tl, tFull) {
+  const views = {}, np = tl.not_playing || [], focus = tl.focus || [], ts = tl.t || [];
+  const inNp = (t) => np.some(s => t >= s[0] && t <= s[1]);
+  if (np.length && ts.length) {
+    let a = null, b = null;
+    for (let i = 0; i < ts.length; i++) if (!inNp(ts[i])) { a = ts[i]; break; }
+    for (let i = ts.length - 1; i >= 0; i--) if (!inNp(ts[i])) { b = ts[i]; break; }
+    if (a != null && b > a) views.play = { a, b };
+  }
+  if (focus.length) {
+    const a = Math.max(tFull[0], Math.min(...focus.map(f => f[0]))), b = Math.min(tFull[1], Math.max(...focus.map(f => f[1])));
+    if (b > a) views.mark = { a, b, only: focus };
+  }
+  return views;
+}
+
+// frames.bin: every frame of the session as (seconds, frame time in ms; negative while not playing)
+async function sessionFrames(r) {
+  const id = r.meta.id;
+  if (S.frames && S.frames.id === id) return S.frames;
+  let buf = null;
+  try {
+    if (REPORT) {
+      if (window.FL_FRAMES) { const s = atob(window.FL_FRAMES); const u8 = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i); buf = u8.buffer; }
+    } else {
+      const res = await fetch('/api/session/' + encodeURIComponent(id) + '/frames', { headers: { 'X-Token': TOKEN } });
+      if (res.ok) buf = await res.arrayBuffer();
+    }
+  } catch (e) { buf = null; }
+  let F = { id, t: null, ms: null };
+  if (buf && buf.byteLength >= 8) {
+    const dv = new DataView(buf);
+    const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
+    const n = dv.getUint32(4, true);
+    if (magic === 'FLF1' && buf.byteLength >= 8 + 8 * n) {
+      const t = new Float32Array(n), ms = new Float32Array(n);
+      for (let i = 0; i < n; i++) { t[i] = dv.getFloat32(8 + 8 * i, true); ms[i] = dv.getFloat32(12 + 8 * i, true); }
+      F = { id, t, ms };
+    }
+  }
+  S.frames = F;
+  return F;
+}
+
+// the numbers of the frames played between a and b (only inside the marks when given), worked out the
+// same way as the session's own: frames of 5 s or more (the game stopped) are left out of the average
+function rangeStats(F, a, b, only) {
+  const v = [];
+  for (let i = 0; i < F.t.length; i++) {
+    const t = F.t[i];
+    if (t < a || t > b) continue;
+    const m = F.ms[i];
+    if (m < 0 || Object.is(m, -0)) continue; // loading screen / menu
+    if (only && !only.some(s => t >= s[0] && t <= s[1])) continue;
+    v.push(m);
+  }
+  const n = v.length;
+  if (!n) return null;
+  const sorted = Float64Array.from(v).sort();
+  const pct = (p) => sorted[Math.round(p / 100 * (n - 1))];
+  let kept = 0, sum = 0;
+  for (const x of v) if (x < 5000) { kept++; sum += x; }
+  if (!kept) { kept = n; sum = v.reduce((s, x) => s + x, 0); }
+  const avg = sum / kept;
+  let over = 0;
+  for (const x of v) if (!(x >= 5000 && kept < n) && x > 2.5 * avg) over++;
+  return { frames: n, playS: sum / 1000, avgFps: kept / (sum / 1000), median: pct(50), low1: 1000 / pct(99), low01: 1000 / pct(99.9), stutter: 100 * over / kept };
+}
+
+async function showRangeStats(el, r, key, a, b, views) {
+  const box = $('#ch-range', el);
+  if (!box) return;
+  const F = await sessionFrames(r);
+  if (!$('#ch-range', el)) return;
+  const RK = repKeys(r);
+  const only = key === 'mark' && views.mark ? views.mark.only : null;
+  const what = key === 'all' ? 'Whole session' : key === 'play' ? 'From the first gameplay' : key === 'mark' ? 'Only the ' + esc(RK.mark) + ' mark' : 'On screen';
+  const when = fmt.t(Math.max(0, a)).replace(/\.\d$/, '') + ' to ' + fmt.t(b).replace(/\.\d$/, '');
+  if (!F.t) { box.innerHTML = '<b>' + what + '</b> <span class="dimmer">· ' + when + ' · ' + (REPORT ? 'this report has no frame list for the numbers of a part' : 'Re-analyse this session to get the numbers of the part on screen') + '</span>'; return; }
+  const st = rangeStats(F, a, b, only);
+  if (!st) { box.innerHTML = '<b>' + what + '</b> <span class="dimmer">· ' + when + ' · no play here (loading screens and menus are left out)</span>'; return; }
+  const sp = (r.spikes || []).filter(s => s.t >= a && s.t <= b && (!only || only.some(f => s.t >= f[0] && s.t <= f[1]))).length;
+  box.innerHTML = '<b>' + what + '</b> <span class="dimmer">· ' + when + ' · ' + fmt.dur(st.playS) + ' of play</span> · '
+    + '<b>' + fmt.fps(st.avgFps) + '</b> avg · median ' + fmt.ms(st.median) + ' · 1% low <b>' + fmt.fps(st.low1) + '</b> · 0.1% low ' + fmt.fps(st.low01)
+    + ' · ' + sp + (sp === 1 ? ' spike' : ' spikes') + (st.playS >= 60 && sp ? ' (' + (sp / (st.playS / 60)).toFixed(1) + ' per minute)' : '') + ' · stutter ' + st.stutter.toFixed(2) + '%';
+}
+
 function drawCharts(el, r) {
   const tl = r.timeline || {};
   const W = Math.max(400, $('#ch-main', el).clientWidth - 4);
@@ -1024,7 +1114,18 @@ function drawCharts(el, r) {
     if (inList(tl.focus)) parts.push('<span style="color:var(--accent)">' + esc(repKeys(r).mark) + ' mark</span>');
     box.innerHTML = parts.join(' · ');
   };
-  const zoomed = (u) => { const b = $('#ch-all', el); if (b) b.style.display = (u.scales.x.max - u.scales.x.min) < (tFull[1] - tFull[0]) * 0.98 ? '' : 'none'; };
+  // 2.5.2: the part on screen (Whole session / From the first gameplay / Only the mark / a dragged zoom)
+  // gets its own numbers, worked out from every frame (frames.bin), not from the thinned chart line
+  const views = chartViews(tl, tFull);
+  let viewKey = 'all', rangeT = 0;
+  const zoomed = (u) => {
+    const a = u.scales.x.min, b = u.scales.x.max;
+    if (viewKey !== 'all' && viewKey !== 'zoom') { const v = views[viewKey]; if (!v || Math.abs(v.a - a) > 0.05 || Math.abs(v.b - b) > 0.05) viewKey = 'zoom'; }
+    else viewKey = (b - a) < (tFull[1] - tFull[0]) * 0.98 ? 'zoom' : 'all';
+    $$('[data-chview]', el).forEach(x => x.classList.toggle('on', x.dataset.chview === viewKey));
+    clearTimeout(rangeT);
+    rangeT = setTimeout(() => showRangeStats(el, r, viewKey, a, b, views), 60);
+  };
   const hooksAll = { setCursor: [(u) => { if (u.cursor.left >= 0) readout(u.posToVal(u.cursor.left, 'x')); }], setScale: [(u, k) => { if (k === 'x') zoomed(u); }] };
   const cursor = { sync: { key: 'fl' }, drag: { x: true, y: false, dist: 10 } };
   const gaps = tl.gaps || [], notPlay = tl.not_playing || [], focus = tl.focus || [];
@@ -1171,10 +1272,16 @@ function drawCharts(el, r) {
       [{ stroke: lc('#6fd3ff'), width: 1, scale: 'a', points: { show: false } }].concat(held ? [{ stroke: lc('#ff8a9a'), width: 1, scale: 'b', points: { show: false } }] : []),
       { a: { range: (u, a, b) => [0, Math.max(60, b * 1.1)] }, b: { range: (u, a, b) => [0, Math.max(20, b * 1.1)] } }, ax2('fps', '%'));
   } else { const h = $('#ch-disp', el); if (h) h.innerHTML = '<div class="empty" style="padding:20px">Not recorded in this session (PresentMon).</div>'; }
-  const showAll = () => S.charts.forEach(u => u.setScale('x', { min: tFull[0], max: tFull[1] }));
-  const btn = $('#ch-all', el);
-  if (btn) btn.onclick = showAll;
+  const setView = (key) => {
+    const v = key === 'all' ? { a: tFull[0], b: tFull[1] } : views[key];
+    if (!v) return;
+    viewKey = key;
+    S.charts.forEach(u => u.setScale('x', { min: v.a, max: v.b }));
+  };
+  const showAll = () => setView('all');
+  $$('[data-chview]', el).forEach(x => x.onclick = () => setView(x.dataset.chview));
   S.charts.forEach(u => u.over.addEventListener('dblclick', showAll));
+  if (S.mainChart && S.charts.includes(S.mainChart)) zoomed(S.mainChart);
   // 2.5: the L-shape (own x axis: not zoomed or synced with the time charts)
   const lh = $('#ch-lshape', el);
   if (lh) {

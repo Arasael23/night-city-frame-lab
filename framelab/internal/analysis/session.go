@@ -44,6 +44,7 @@ type LayerInfo struct {
 const (
 	FileMeta       = "session.json"
 	FileAnalysis   = "analysis.json"
+	FileFrames     = "frames.bin" // 2.5.2: every frame (time, frame time) for the numbers of any part of the session
 	FileHitch      = "hitch.bin"
 	FileHitchLog   = "hitch.log"
 	FilePresentMon = "presentmon.csv"

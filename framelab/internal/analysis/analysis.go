@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -280,7 +281,7 @@ func (d *data) unixToQpc(u float64) int64 { return d.anchorQ + int64((u-d.anchor
 
 // ResultVersion goes up when the analysis gains something new; older analysis.json files are
 // rebuilt when a session is opened (if its recording is still there).
-const ResultVersion = 10 // 3: L-shape (2.5); 4: read times / reloaded files (2.31); 5: Do this next, did it help (2.5); 6-7: test routes (2.5); 8: game options (2.5); 9: cost per script function (2.5E); 10: menu spikes (2.5)
+const ResultVersion = 11 // 3: L-shape (2.5); 4: read times / reloaded files (2.31); 5: Do this next, did it help (2.5); 6-7: test routes (2.5); 8: game options (2.5); 9: cost per script function (2.5E); 10: menu spikes (2.5); 11: frames.bin for the numbers of a part (2.5.2)
 
 // Run analyses the session folder and writes analysis.json.
 func Run(dir string, env Env) (*Result, error) {
@@ -694,6 +695,19 @@ func Run(dir string, env Env) (*Result, error) {
 				res.Timeline.GpuMs = append(res.Timeline.GpuMs, -1)
 			}
 		}
+	}
+
+	// frames.bin (2.5.2): every recorded frame, so the report can give the numbers of the part on screen
+	if n := len(frames); n > 0 {
+		ts, fm := make([]float32, n), make([]float32, n)
+		for i, f := range frames {
+			ts[i] = float32(tsec(f.q))
+			fm[i] = float32(f.ms)
+			if len(notPlay) > 0 && !playing(f.q) {
+				fm[i] = -fm[i] // loading screen / menu: shown, left out of the numbers
+			}
+		}
+		writeFrames(dir, ts, fm)
 	}
 
 	// ---- VRAM (game's own use, from inside the game)
@@ -1780,6 +1794,23 @@ func Run(dir string, env Env) (*Result, error) {
 	writeOptions(dir, res.Options) // (before the routes: the schedule re-reads a session when its routes.json is newer)
 	writeRoutes(dir, res.Routes)   // a small copy for the Optimise schedule, which reads many sessions
 	return res, nil
+}
+
+// writeFrames writes frames.bin: "FLF1", the frame count (uint32), then per frame two float32 (little
+// endian): seconds since the start of the recording and the frame time in ms, negative while not playing.
+func writeFrames(dir string, ts, ms []float32) {
+	b := make([]byte, 8+8*len(ts))
+	copy(b, "FLF1")
+	binary.LittleEndian.PutUint32(b[4:], uint32(len(ts)))
+	for i := range ts {
+		binary.LittleEndian.PutUint32(b[8+8*i:], math.Float32bits(ts[i]))
+		binary.LittleEndian.PutUint32(b[12+8*i:], math.Float32bits(ms[i]))
+	}
+	tmp := filepath.Join(dir, FileFrames+".tmp")
+	if os.WriteFile(tmp, b, 0o644) == nil && os.Rename(tmp, filepath.Join(dir, FileFrames)) != nil {
+		os.Remove(tmp)
+		os.WriteFile(filepath.Join(dir, FileFrames), b, 0o644)
+	}
 }
 
 // captureWindows returns the recorded stretches as QPC pairs.

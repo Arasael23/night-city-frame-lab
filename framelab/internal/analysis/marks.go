@@ -119,6 +119,15 @@ func ReadMarks(dir string) ([]GameMark, error) {
 // notPlaying turns the markers into Unix-ms spans that are not gameplay: everything before V is
 // first in the game, each loading screen, and the time between leaving the game and coming back.
 // The CET log has whole seconds, so the spans are padded a little.
+// titleMenu: the start screen and the menus before a save is loaded (the markers mod's menu names)
+func titleMenu(text string) bool {
+	switch text {
+	case "menu open EngagementScreen", "menu open SingleplayerMenu", "menu open MainMenu", "menu open LoadGame":
+		return true
+	}
+	return false
+}
+
 func notPlaying(marks []GameMark, startMs, endMs float64) [][2]float64 {
 	if len(marks) == 0 {
 		return nil
@@ -130,7 +139,28 @@ func notPlaying(marks []GameMark, startMs, endMs float64) [][2]float64 {
 	inGame := false
 	outFrom := startMs // not playing until the first "in game"
 	loadFrom := -1.0
-	for _, m := range marks {
+	// 2.5.2: the CET markers mod says "in game" as soon as it loads, while the game still shows its
+	// start screens and the title menu. When the title menu opens before the first "left the game" (the
+	// save loading), that first "in game" isn't play: the start counts as not playing until the save is in.
+	bootUntil := -1
+	for i, m := range marks {
+		if m.Text == "left the game" {
+			break
+		}
+		if titleMenu(m.Text) {
+			for j := i + 1; j < len(marks); j++ {
+				if marks[j].Text == "left the game" {
+					bootUntil = j
+					break
+				}
+			}
+			break
+		}
+	}
+	for i, m := range marks {
+		if i < bootUntil && m.Text == "in game" {
+			continue
+		}
 		switch m.Text {
 		case "in game":
 			if !inGame && outFrom >= 0 {

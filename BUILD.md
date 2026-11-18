@@ -1,4 +1,4 @@
-# Building Night City Frame Lab 2.5.1 and 2.5.1E
+# Building Night City Frame Lab 2.5.2 and 2.5.2E
 
 The release is cross-compiled on Linux. On Windows, use WSL with Ubuntu 24.04 and follow the same steps.
 
@@ -28,8 +28,8 @@ and `out/HitchRecorder.dll`, and prints their SHA-256:
 
 | File | SHA-256 |
 |---|---|
-| NightCityFrameLab.exe (2.5) | `2c85dcb47ccfb37667062f01b3c5af4fc6262d25a6dfebe10c5de0791bf6df11` |
-| E/NightCityFrameLab.exe (2.5E) | `1905df12d8e00f682d7e9aa50b4c00212e87e265aceb8b97f5a3acd3e1819a3e` |
+| NightCityFrameLab.exe (2.5) | `f70a45644f8d889ea6449320fec35979906ab60cc6ad81fed380755e89acbfc5` |
+| E/NightCityFrameLab.exe (2.5E) | `535d32c72fe7873ee8716c9d9e04c649e250da4da940f23f4325a0c29561ad1a` |
 | GPU check.exe | `821c9005d189703b7592febd803863b6799a03dcf545d5939c1ae34916e85cec` |
 | HitchRecorder.dll | `68a50bc937df5b91da07aa0537aa08cc6170e457a1ce018ccaf93e14c29b653d` |
 
@@ -82,8 +82,8 @@ This gives the two downloads (file times are fixed so the zips are reproducible)
 
 | Zip | SHA-256 |
 |---|---|
-| `out/Night City Frame Lab 2.5.1.zip` (Frame Lab 2.5) | `de160998b7c4af9ec572acd13d2110a4136a2263bfb9b41fa53af37fe8b8e207` |
-| `out/Night City Frame Lab 2.5.1E.zip` (Frame Lab 2.5E) | `cda99dd5b41639d4c195db996b369e3eb98b9debdf17136e8b3be9c5e433140b` |
+| `out/Night City Frame Lab 2.5.2.zip` (Frame Lab 2.5) | `79bdaaae31e0c3383982e8ffd6bd59876358cfce9bc4ad5161bfccf099a46756` |
+| `out/Night City Frame Lab 2.5.2E.zip` (Frame Lab 2.5E) | `89829440e72113f4c9ff6b58d702d17e833a7a93546d26758fdbd0a24942aeb5` |
 
 Each zip has its edition's exe and README (`release/README.txt` or `release/README-E.txt`); only 2.5E has
 `components\FrameLabOptions` and `components\WolvenKit`.

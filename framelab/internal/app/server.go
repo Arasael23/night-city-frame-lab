@@ -626,6 +626,15 @@ func (s *Server) sessionAPI(w http.ResponseWriter, r *http.Request, rest string,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(b)
+	case "frames":
+		// 2.5.2: every frame of the session (frames.bin), for the numbers of the part on screen
+		b, err := os.ReadFile(filepath.Join(dir, analysis.FileFrames))
+		if err != nil {
+			writeErr(w, 404, errors.New("this session has no frame list yet: Re-analyse it"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Write(b)
 	case "analyse":
 		res, err := s.Ctl.Analyse(id)
 		if err != nil {
@@ -844,11 +853,15 @@ func (s *Server) exportReport(dir string) (string, error) {
 	}
 	js := read("uPlot.iife.min.js") + "\n" + read("app.js")
 	safeData := strings.ReplaceAll(string(ana), "</", "<\\/")
+	frames := ""
+	if b, err := os.ReadFile(filepath.Join(dir, analysis.FileFrames)); err == nil {
+		frames = "<script>window.FL_FRAMES = \"" + base64.StdEncoding.EncodeToString(b) + "\";</script>\n"
+	}
 	html = strings.Replace(html, `<link rel="stylesheet" href="uPlot.min.css">`, "", 1)
 	html = strings.Replace(html, `<link rel="stylesheet" href="style.css">`, "<style>\n"+css+"\n</style>", 1)
 	html = strings.Replace(html, `<script src="uPlot.iife.min.js"></script>`, "", 1)
 	html = strings.Replace(html, `<script src="app.js"></script>`,
-		"<script>window.FL_REPORT = "+safeData+";</script>\n<script>\n"+strings.ReplaceAll(js, "</script", "<\\/script")+"\n</script>", 1)
+		"<script>window.FL_REPORT = "+safeData+";</script>\n"+frames+"<script>\n"+strings.ReplaceAll(js, "</script", "<\\/script")+"\n</script>", 1)
 	m, _ := analysis.ReadMeta(dir)
 	name := "Frame Lab report.html"
 	if m != nil && m.Title != "" {

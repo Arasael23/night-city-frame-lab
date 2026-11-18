@@ -221,7 +221,11 @@ details.cf[open] > summary .chev { transform: rotate(90deg); }
 .lvl-e { color: var(--red); font-weight: 600; } .lvl-w { color: var(--amber); font-weight: 600; }
 .chart-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .chart-top .legend { flex: 1; }
-#ch-all { flex: none; margin: 0 4px 6px; }
+/* 2.5.2: which part of the session the charts show, and its numbers */
+.ch-views { flex: none; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin: 0 4px 6px; }
+.ch-views .btn2.on { border-color: var(--accent); background: rgba(47,196,185,.14); color: var(--white); font-weight: 600; }
+.range-stats { margin: 0 4px 6px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; font-size: 13.5px; line-height: 1.45; min-height: calc(1.45em + 14px); color: var(--text); font-variant-numeric: tabular-nums; }
+.range-stats b { color: var(--white); }
 /* readouts change with the mouse: a fixed two-line height, so the chart and the box around it never jump */
 .readout { margin: 0 4px 6px; font-size: 13.5px; line-height: 1.45; height: calc(2 * 1.45em); overflow: hidden; color: var(--dim); font-variant-numeric: tabular-nums; }
 .readout b { color: var(--white); }
