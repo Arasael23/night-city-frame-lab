@@ -13,6 +13,7 @@ import (
 	"framelab/internal/conflicts"
 	"framelab/internal/hrec"
 	"framelab/internal/modmap"
+	"framelab/internal/optimise"
 )
 
 // Conflict check per build: runs in the background (a few seconds for a few hundred archives) and
@@ -87,6 +88,9 @@ func (s *Server) checkConflicts(i int) error {
 			state = "error: " + err.Error()
 		}
 		s.Ctl.diag("conflict check " + b.Name + ": " + itoa(len(r.Pairs)) + " archive pairs, " + itoa(len(r.Scripts)) + " script, " + itoa(len(r.Tweaks)) + " tweak conflicts")
+		if state == "" {
+			s.schedMark(b.Name, "conflicts") // step 2 of the Optimise schedule
+		}
 		conflictMu.Lock()
 		conflictState[b.Name] = state
 		conflictMu.Unlock()
@@ -107,6 +111,27 @@ func (s *Server) conflictReport(i int) (map[string]any, error) {
 	out := map[string]any{"build": b.Name, "state": state}
 	if bs, err := os.ReadFile(s.conflictPath(b.Name)); err == nil {
 		out["report"] = json.RawMessage(bs)
+		var r conflicts.Report
+		if json.Unmarshal(bs, &r) == nil {
+			if Experimental { // 2.5E: named fixes for the errors in the logs
+				out["log_fixes"] = optimise.LogFixes(b.Path, r.Logs)
+			}
+			// TweakXL clashes: what the downloaded mods set the same value to
+			if c := s.corpus(); c != nil && len(r.Tweaks) > 0 {
+				others, names := map[string][]optimise.TweakOther{}, map[int]string{}
+				x := s.optimiseIndex()
+				for _, t := range r.Tweaks {
+					o := c.TweakOthers(t.Key)
+					others[t.Key] = o
+					for _, v := range o {
+						for _, id := range v.Mods {
+							names[id] = x.ModName(id)
+						}
+					}
+				}
+				out["tweak_others"], out["mod_names"] = others, names
+			}
+		}
 	}
 	return out, nil
 }

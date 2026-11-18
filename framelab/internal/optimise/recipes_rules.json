@@ -1,0 +1,616 @@
+{
+ "made": "2026-11-18",
+ "recipes": [
+  {
+   "id": "rule-12245-124168",
+   "mod": "Pacifica Typhoon - Dogtown's Hidden Gems",
+   "nexus": 12245,
+   "kind": "perf",
+   "what": "Its onUpdate work runs 10 times a second instead of every frame (the time in between is handed on, so its timers keep counting right).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/PacificaTyphoon/init.lua",
+     "before": "06283657d8fcffa81d5490dac9bbc98b7b04841381de54d2ef50ee0c88d11f9c",
+     "after": "1cec4fe5a727ed381b17aa2748478529507fe861900f7e22cd359e548cc4b3aa",
+     "ops": [
+      {
+       "at": 12233,
+       "del": 0,
+       "ins": " --[[ Frame Lab: 10 times a second ]] __fl_acc = __fl_acc or {} local __fl_t = (__fl_acc[218] or 0) + (dt or 0) if __fl_t \u003c 0.0995 then __fl_acc[218] = __fl_t return end __fl_acc[218] = 0 dt = __fl_t"
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "2.3.0"
+  },
+  {
+   "id": "rule-15450-111384",
+   "mod": "Playable Roulette - Gambling System",
+   "nexus": 15450,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/Gambling System - Roulette/External/interactionUI.lua",
+     "before": "2715b05d066cd2790eb1b8fbc24daeba534c6164b2c21d647abc4409ace9d779",
+     "after": "bbdd7ac1de39b531faf88e01fa3744478095b51fce5aea8baeed4d1766c169f0",
+     "ops": [
+      {
+       "at": 15196,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.0.15"
+  },
+  {
+   "id": "rule-15450-173827",
+   "mod": "Playable Roulette - Gambling System",
+   "nexus": 15450,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/Gambling System - Roulette/External/interactionUI.lua",
+     "before": "0612a865bc15cb0b3c24ee1c3f153b57a55f556219e7c9bbb694063437452ee1",
+     "after": "8d10ce5f227f5545cd8ca4eb4775ff1a1e81bc0977368c6eb6f0e690e7016739",
+     "ops": [
+      {
+       "at": 15093,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.1.4"
+  },
+  {
+   "id": "rule-16094-166283",
+   "mod": "CyberTrials - Create and Share Time Trial Races",
+   "nexus": 16094,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/CyberTrials/modules/external/interactionUI.lua",
+     "before": "c202410c5134e14a5363e530b22669e93dd74600007b80920d9d8ea16da83c61",
+     "after": "a79cb589c2ebd623acb4d3adb54e4408ee1259716b9eeffe11312ba15b11ccf5",
+     "ops": [
+      {
+       "at": 14012,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "2.31.3"
+  },
+  {
+   "id": "rule-16429-165258",
+   "mod": "Night City Salvage - Scrap Vehicles For Eddies",
+   "nexus": 16429,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/Night City Salvage/modules/external/interactionUI.lua",
+     "before": "fc130f67efdae622619cf2dc78a69b64febaa8a04c6cead61577ca7c86463e25",
+     "after": "375c066e723155f5f5ab272121935b4f90dae4f302014c21e05d9990c8fef131",
+     "ops": [
+      {
+       "at": 15169,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "2.0"
+  },
+  {
+   "id": "rule-19575-123064",
+   "mod": "Playable Blackjack - Gambling System",
+   "nexus": 19575,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/gambling-system-blackjack/External/interactionUI.lua",
+     "before": "adb57144a2f10f341a5299e50aaec07293748a383f6337c1afa04691bd89543b",
+     "after": "5ed35be596582ba6dd46d24075639fdb5fa9d5695ee8b5ac0465378abb21b6af",
+     "ops": [
+      {
+       "at": 15259,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.1.0"
+  },
+  {
+   "id": "rule-19889-110608",
+   "mod": "Pachinko Button - Gambling System",
+   "nexus": 19889,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/gambling-system-pachinko/External/interactionUI.lua",
+     "before": "adb57144a2f10f341a5299e50aaec07293748a383f6337c1afa04691bd89543b",
+     "after": "5ed35be596582ba6dd46d24075639fdb5fa9d5695ee8b5ac0465378abb21b6af",
+     "ops": [
+      {
+       "at": 15259,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.1.1"
+  },
+  {
+   "id": "rule-19889-129595",
+   "mod": "Pachinko Button - Gambling System",
+   "nexus": 19889,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/gambling-system-pachinko/External/interactionUI.lua",
+     "before": "15a399f981030a61c086d7973a5417789833c352df06d585d33339fb5f5a4488",
+     "after": "ae8e3eebdc17dd31dda910861bf27bab1a341c5b97424b332617854fe1ce443d",
+     "ops": [
+      {
+       "at": 15370,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.1.4"
+  },
+  {
+   "id": "rule-21420-168656",
+   "mod": "Post-Romance Delivery System (Kerry)",
+   "nexus": 21420,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/kerrys_gift_mod/modules/interactionUI.lua",
+     "before": "489a3d6defe09eee9baa989dc88194fe936e8e5b5f98b92daa6fc3cb1680b71e",
+     "after": "f0b48b9b68e2f556c694660b72432c76b6d492ac0aedae3cbe89151eeadd3a75",
+     "ops": [
+      {
+       "at": 14574,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "4.2"
+  },
+  {
+   "id": "rule-21449-168657",
+   "mod": "Post-Romance Delivery System (River)",
+   "nexus": 21449,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/river_gift_mod/modules/interactionUI.lua",
+     "before": "7e202074eb52386334dff636b7c50530c9dbcf4ea60a611a8f93b0298793ccaf",
+     "after": "ae0d2584751a8c44b037699b7547f90d76b31c109e67045e0ef6837d6ab4f1f7",
+     "ops": [
+      {
+       "at": 14876,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "3.4"
+  },
+  {
+   "id": "rule-21496-116506",
+   "mod": "Post-Romance Delivery System (Judy) With physical packages",
+   "nexus": 21496,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/judy_gift_mod/modules/interactionUI.lua",
+     "before": "7e202074eb52386334dff636b7c50530c9dbcf4ea60a611a8f93b0298793ccaf",
+     "after": "ae0d2584751a8c44b037699b7547f90d76b31c109e67045e0ef6837d6ab4f1f7",
+     "ops": [
+      {
+       "at": 14876,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "3.2"
+  },
+  {
+   "id": "rule-21496-168663",
+   "mod": "Post-Romance Delivery System (Judy) With physical packages",
+   "nexus": 21496,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/judy_gift_mod/modules/interactionUI.lua",
+     "before": "a400426c7a9a132be6abe21aa74327003e5375ace2ee75ab0e532506a7d2c9b9",
+     "after": "4521c8525f3e7d266d377cb34357e762a8b99256932f327bc76bd5c3db0006fc",
+     "ops": [
+      {
+       "at": 14493,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "5.1"
+  },
+  {
+   "id": "rule-21729-171210",
+   "mod": "Rent a Motel",
+   "nexus": 21729,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/RentMotelMod_0Engine/modules/interactionUI.lua",
+     "before": "4a26e6e6154e0d729a6fe8026fa99a506aff7ac0de9949e061e06aa4cf9fd2de",
+     "after": "9905996eabb0fcafc040f830534911109b15278e71c9c30b5cd389646a6e9a75",
+     "ops": [
+      {
+       "at": 15658,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "6.2.3"
+  },
+  {
+   "id": "rule-21729-172253",
+   "mod": "Rent a Motel",
+   "nexus": 21729,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/RentMotelMod/modules/interactionUI.lua",
+     "before": "57b854b205e21911ea41d691e857716e0cbd03e8634b6c82ff6e663bbf0ab97f",
+     "after": "eb3edf2156b8bd79a3fb5af16a6ab5cb099eccfe62b5c1bc0e79f3c33cc4d56a",
+     "ops": [
+      {
+       "at": 15618,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "6.2.4"
+  },
+  {
+   "id": "rule-21729-172254",
+   "mod": "Rent a Motel",
+   "nexus": 21729,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/RentMotelMod_0Engine/modules/interactionUI.lua",
+     "before": "709515116d6bdadc311a6b8bcd063760671563fdc278c7f477dd0b4a91467538",
+     "after": "5343abafdbc9c7172e799ab91daed7f69033f7a391b9f8a3999f4aeef6e73f4a",
+     "ops": [
+      {
+       "at": 15719,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "6.2.4"
+  },
+  {
+   "id": "rule-22472-112742",
+   "mod": "Interactive Accessories (Toggle Visors Goggles etc.)",
+   "nexus": 22472,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/InteractiveAccessories/lib/interactionUI.lua",
+     "before": "244a2b4e57c02c9288b8ee585e809a954e7cb7297b6e6939f9187fd68e629dd1",
+     "after": "4c7088112d1fca52dff52cb89fae615eccd31dd9873d4a521db84c9bf5531d71",
+     "ops": [
+      {
+       "at": 15111,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.0"
+  },
+  {
+   "id": "rule-23242-168661",
+   "mod": "Post-Romance Delivery System (Meredith)",
+   "nexus": 23242,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/meredith _gift_mod/modules/interactionUI.lua",
+     "before": "f30719a335cde000967486c4d59a19e3e04669dd183cac33b5f4d506fe63b433",
+     "after": "aa7f216d4ffb72d5cf9199960ec66b1c8ac99e7773f8ab6ab3ecd4ad3266c38e",
+     "ops": [
+      {
+       "at": 14575,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "2.1"
+  },
+  {
+   "id": "rule-24073-168655",
+   "mod": "Post-Quest Delivery System (Chooms)",
+   "nexus": 24073,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/choom _gift_mod - p1/modules/interactionUI.lua",
+     "before": "7e202074eb52386334dff636b7c50530c9dbcf4ea60a611a8f93b0298793ccaf",
+     "after": "ae0d2584751a8c44b037699b7547f90d76b31c109e67045e0ef6837d6ab4f1f7",
+     "ops": [
+      {
+       "at": 14876,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.1"
+  },
+  {
+   "id": "rule-24102-121045",
+   "mod": "Dedra's Truck Simulator (Convoy Job Delivery Mod) - Quest",
+   "nexus": 24102,
+   "kind": "perf",
+   "what": "Its onUpdate work runs 10 times a second instead of every frame (the time in between is handed on, so its timers keep counting right). Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/Dedra's Truck Simulator/init.lua",
+     "before": "e397f590e758e52780149e8fdcaeaa2edba15a95c194d798e5f4fe09449e54c1",
+     "after": "1e0e5751774f65eaa773cb3adf848da6ac9f9ce15c3c89b2ac403ae32db948e2",
+     "ops": [
+      {
+       "at": 24659,
+       "del": 0,
+       "ins": " --[[ Frame Lab: 10 times a second ]] __fl_acc = __fl_acc or {} local __fl_t = (__fl_acc[686] or 0) + (_delta or 0) if __fl_t \u003c 0.0995 then __fl_acc[686] = __fl_t return end __fl_acc[686] = 0 _delta = __fl_t"
+      }
+     ]
+    },
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/Dedra's Truck Simulator/modules/interactionUI.lua",
+     "before": "7e202074eb52386334dff636b7c50530c9dbcf4ea60a611a8f93b0298793ccaf",
+     "after": "ae0d2584751a8c44b037699b7547f90d76b31c109e67045e0ef6837d6ab4f1f7",
+     "ops": [
+      {
+       "at": 14876,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.3"
+  },
+  {
+   "id": "rule-27754-168658",
+   "mod": "R.A. Militech Behemoth Mobile Living Conversion - Fully Drivable Homebase (Truck)",
+   "nexus": 27754,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/Dedratruckcustom/modules/interactionUI.lua",
+     "before": "7e202074eb52386334dff636b7c50530c9dbcf4ea60a611a8f93b0298793ccaf",
+     "after": "ae0d2584751a8c44b037699b7547f90d76b31c109e67045e0ef6837d6ab4f1f7",
+     "ops": [
+      {
+       "at": 14876,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.6"
+  },
+  {
+   "id": "rule-33351-174136",
+   "mod": "Rent a Hotel",
+   "nexus": 33351,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/RentAHotel/modules/interactionUI.lua",
+     "before": "0a9cd1960f88e5417ed2609ce8e726671224a9ff4c058080b056ff628fead9ea",
+     "after": "4c77bb18889bb78e1282142ed723e2568902e7f9a7d70146289fc2e9c50f5486",
+     "ops": [
+      {
+       "at": 13215,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.0.4"
+  },
+  {
+   "id": "rule-5058-123462",
+   "mod": "Missing Persons - Fixer's Hidden Gems",
+   "nexus": 5058,
+   "kind": "perf",
+   "what": "Its onUpdate work runs 10 times a second instead of every frame (the time in between is handed on, so its timers keep counting right).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/MissingPersons/init.lua",
+     "before": "cd84e546611402cbe99a343687099fd89f66f8b9cd8b2d362c9479e262eefc72",
+     "after": "572f070fb7131ee11edeedc9ff6762ae3ae9f550a989daadec7250d2df817fde",
+     "ops": [
+      {
+       "at": 19512,
+       "del": 0,
+       "ins": " --[[ Frame Lab: 10 times a second ]] __fl_acc = __fl_acc or {} local __fl_t = (__fl_acc[283] or 0) + (dt or 0) if __fl_t \u003c 0.0995 then __fl_acc[283] = __fl_t return end __fl_acc[283] = 0 dt = __fl_t"
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "2.3.0"
+  },
+  {
+   "id": "rule-6319-70083",
+   "mod": "Stock Market and News System",
+   "nexus": 6319,
+   "kind": "perf",
+   "what": "Its onUpdate work runs 10 times a second instead of every frame (the time in between is handed on, so its timers keep counting right).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/stocks/init.lua",
+     "before": "38e4b3bd7a3cd575d80fdaa05000bc239047b2954aeea682a6efa069c3d2e862",
+     "after": "f523f4753a177df336d6adad39d120af78906c1ee3d109762f427f4e9fdc06fb",
+     "ops": [
+      {
+       "at": 4233,
+       "del": 0,
+       "ins": " --[[ Frame Lab: 10 times a second ]] __fl_acc = __fl_acc or {} local __fl_t = (__fl_acc[93] or 0) + (dt or 0) if __fl_t \u003c 0.0995 then __fl_acc[93] = __fl_t return end __fl_acc[93] = 0 dt = __fl_t"
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.4"
+  },
+  {
+   "id": "rule-7159-167350",
+   "mod": "Psycho Crowds and Traffic Improvements (ini tweak)",
+   "nexus": 7159,
+   "kind": "perf",
+   "what": "Its onUpdate work runs 10 times a second instead of every frame (the time in between is handed on, so its timers keep counting right).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/PsychoCrowds-CET_DensityPerformanceMenu/init.lua",
+     "before": "a9561c71bf890a8ec62df2bd7e33d799decd9f1854378b4c718d597a579a2702",
+     "after": "27e66f56b7277e3243b624992c854c44f2cf72e683f7546ade51f84f7427a440",
+     "ops": [
+      {
+       "at": 810,
+       "del": 0,
+       "ins": " --[[ Frame Lab: 10 times a second ]] __fl_acc = __fl_acc or {} local __fl_t = (__fl_acc[31] or 0) + (delta or 0) if __fl_t \u003c 0.0995 then __fl_acc[31] = __fl_t return end __fl_acc[31] = 0 delta = __fl_t"
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "dpm-3.3.3"
+  },
+  {
+   "id": "rule-7299-126672",
+   "mod": "Sit Anywhere",
+   "nexus": 7299,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/sitAnywhere/modules/interactionUI.lua",
+     "before": "9ec1bec5872dc5aeb0eef8fb167efcc75aef0d0e40b2f1bad9bf5f576c80c1a1",
+     "after": "c2d619bbf8d547b03d6bdd520a73bcac647f89c4e4c115ed59d1317c9940be3b",
+     "ops": [
+      {
+       "at": 14647,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.4"
+  },
+  {
+   "id": "rule-9938-126673",
+   "mod": "Lean Anywhere",
+   "nexus": 9938,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/leanAnywhere/modules/interactionUI.lua",
+     "before": "9ec1bec5872dc5aeb0eef8fb167efcc75aef0d0e40b2f1bad9bf5f576c80c1a1",
+     "after": "c2d619bbf8d547b03d6bdd520a73bcac647f89c4e4c115ed59d1317c9940be3b",
+     "ops": [
+      {
+       "at": 14647,
+       "del": 0,
+       "ins": "if not ui.hubShown then ui.input = false return end --[[ Frame Lab: nothing below works unless its hub is on screen ]] "
+      }
+     ]
+    }
+   ],
+   "rule": true,
+   "version": "1.1"
+  }
+ ],
+ "version": 1
+}

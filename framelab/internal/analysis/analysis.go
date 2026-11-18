@@ -21,12 +21,15 @@ type Env struct {
 	Library *modmap.Library       // may be nil
 	Mods    *modmap.BuildArchives // mod archives of the build; may be nil
 	Names   modmap.NamesFile      // may be ""
+	Prev    *Result               // the session recorded before this one in the same build, for "did it help" (may be nil)
+	Routes  []RouteDef            // the test routes to look for (nil: the default ones)
 }
 
 // ---------------------------------------------------------------- output
 
 type Result struct {
 	Version        int             `json:"version"`
+	Edition        string          `json:"edition,omitempty"` // the Frame Lab edition whose advice this is: "2.5" or "2.5E"
 	Generated      time.Time       `json:"generated"`
 	Meta           *Meta           `json:"meta"`
 	KPI            KPI             `json:"kpi"`
@@ -52,7 +55,12 @@ type Result struct {
 	Loads          *LoadTimes      `json:"load_times,omitempty"`       // start to menu, loading screens (2.0+)
 	Snapshot       *Snapshot       `json:"snapshot,omitempty"`         // versions, settings and mod files at the start (2.0+)
 	Blocks         []BlockStat     `json:"blocks,omitempty"`           // 30 s stretches of play, for Compare's noise check (2.0+)
+	Verdict        string          `json:"verdict,omitempty"`          // the session in one sentence (2.5 "Do this next")
+	FollowUp       *FollowUp       `json:"follow_up,omitempty"`        // against the session before it in the same build (2.5)
 	LShape         [][2]float64    `json:"lshape,omitempty"`           // [percentile, frame time ms] over the play frames: the L-shape (2.5+)
+	Routes         *RouteReport    `json:"routes,omitempty"`           // the test routes this recording covers, each with its own numbers (2.5)
+	Options        *OptionsReport  `json:"options,omitempty"`          // the game's own options in this recording, and the one on trial (2.5)
+	ScriptFns      *FnReport       `json:"script_fns,omitempty"`       // the costliest mod REDscript functions, overall and per route (2.5E Optimise)
 }
 
 type KPI struct {
@@ -194,6 +202,7 @@ type Spike struct {
 	PagesSec   float64   `json:"pages_sec,omitempty"`   // hard page faults per second
 	RamFreeMB  float64   `json:"ram_free_mb,omitempty"` // least free system RAM around the spike
 	Reset      string    `json:"reset,omitempty"`       // the screen reset this spike started with or followed
+	Menu       string    `json:"menu,omitempty"`        // the game menu that opened or closed at this spike (2.5)
 	AfterReset bool      `json:"after_reset,omitempty"` // inside the time a screen reset kept the extra memory
 	Win        []WinItem `json:"win,omitempty"`         // what Windows was doing (event recorder, 1.4+)
 	ReadMaxMs  float64   `json:"read_max_ms,omitempty"` // the game's longest single disk read around the spike (event recorder)
@@ -271,7 +280,7 @@ func (d *data) unixToQpc(u float64) int64 { return d.anchorQ + int64((u-d.anchor
 
 // ResultVersion goes up when the analysis gains something new; older analysis.json files are
 // rebuilt when a session is opened (if its recording is still there).
-const ResultVersion = 4 // 3: L-shape (2.5); 4: read times / reloaded files (2.31)
+const ResultVersion = 10 // 3: L-shape (2.5); 4: read times / reloaded files (2.31); 5: Do this next, did it help (2.5); 6-7: test routes (2.5); 8: game options (2.5); 9: cost per script function (2.5E); 10: menu spikes (2.5)
 
 // Run analyses the session folder and writes analysis.json.
 func Run(dir string, env Env) (*Result, error) {
@@ -360,7 +369,21 @@ func Run(dir string, env Env) (*Result, error) {
 	// ---- not playing (loading screens, menu) from the session markers, as QPC spans
 	var notPlay [][2]int64
 	marksFound := false
-	if marks, err := ReadMarks(dir); err == nil && len(marks) > 0 && d.anchorQ != 0 {
+	marks, _ := ReadMarks(dir)
+	// menu changes the markers mod saw (2.5 test18): "menu open PauseMenu", "menu closed"
+	type menuAt struct {
+		q    int64
+		text string
+	}
+	var menus []menuAt
+	if d.anchorQ != 0 {
+		for _, m := range marks {
+			if strings.HasPrefix(m.Text, "menu open") || m.Text == "menu closed" {
+				menus = append(menus, menuAt{d.unixToQpc(m.UnixMs), m.Text})
+			}
+		}
+	}
+	if len(marks) > 0 && d.anchorQ != 0 {
 		marksFound = true
 		startMs, endMs := d.qpcToUnix(windows[0][0]), d.qpcToUnix(windows[len(windows)-1][1])
 		for _, sp := range notPlaying(marks, startMs, endMs) {
@@ -971,6 +994,56 @@ func Run(dir string, env Env) (*Result, error) {
 	}
 	res.KPI.Spikes = len(spks)
 
+	// ---- test routes (2.5): which routes this recording covers, each with its own numbers
+	if d.anchorQ != 0 {
+		in := &routeInput{}
+		for _, f := range play {
+			in.FrameU = append(in.FrameU, d.qpcToUnix(f.q))
+			in.FrameMs = append(in.FrameMs, f.ms)
+		}
+		for _, s := range spks {
+			in.SpikeU = append(in.SpikeU, d.qpcToUnix(s.q0))
+		}
+		if d.reds != nil || d.cetl != nil {
+			in.Script = func(ua, ub float64) (map[string]float64, float64) {
+				per, secs := map[string]float64{}, 0.0
+				for _, l := range []*ScriptLayer{d.reds, d.cetl} {
+					if l == nil {
+						continue
+					}
+					for o, v := range scriptIn(l, ua, ub) {
+						per[o] += v
+					}
+					if secs == 0 { // both layers are timed over the same stretches
+						for _, sg := range l.Segments {
+							if ov := math.Min(sg[1], ub) - math.Max(sg[0], ua); ov > 0 {
+								secs += ov / 1000
+							}
+						}
+					}
+				}
+				return per, secs
+			}
+		}
+		defs := env.Routes
+		if len(defs) == 0 {
+			defs = DefaultRoutes()
+		}
+		res.Routes = buildRoutes(defs, marks, in)
+		if d.hr != nil {
+			spans := map[string][][2]float64{}
+			if res.Routes != nil {
+				for _, r := range res.Routes.Routes {
+					if len(r.Spans) > 0 {
+						spans[r.ID] = r.Spans
+					}
+				}
+			}
+			res.ScriptFns = fnCosts(dir, func(us uint64) float64 { return d.qpcToUnix(d.hr.Header.Qpc(us)) }, spans)
+		}
+	}
+	res.Options = ParseOptions(marks)
+
 	// ---- screen resets: what each one did to the game's memory, and how long frames crawled
 	type rst struct {
 		q, end int64
@@ -1318,9 +1391,21 @@ func Run(dir string, env Env) (*Result, error) {
 		}
 		if bestMs < 0.25*L {
 			best = "unexplained"
+			// a game menu opening or closing: the screen and the UI switch, often one long frame.
+			// The markers log whole seconds, so the change counts from 1.5 s before to 2.5 s after.
+			for _, m := range menus {
+				if s.q0 >= m.q-int64(1.5*d.freq) && s.q0 <= m.q+int64(2.5*d.freq) {
+					best = "menu"
+					sp.Menu = menuWords(m.text)
+					break
+				}
+			}
 		}
 		sp.Group = best
 		sp.Cause = causeLabel[best]
+		if best == "menu" {
+			sp.Cause = sp.Menu
+		}
 		if best == "disk" && sp.ReadMaxMs >= SlowReadMs {
 			sp.Cause = "slow disk reads"
 			diskSlow++
@@ -1331,6 +1416,9 @@ func Run(dir string, env Env) (*Result, error) {
 		}
 		if best == "reset" && spReset != nil {
 			sp.Verdict = resetVerdict(spReset)
+		}
+		if best == "menu" {
+			sp.Verdict = "The game switched its screen for a menu (" + sp.Menu + "): one long frame while the menu's screen and UI are set up. Not a stutter while playing."
 		}
 		if best == "driver" || best == "paging" {
 			sp.Verdict = winVerdict(best, sp.Win, topDriver)
@@ -1679,6 +1767,9 @@ func Run(dir string, env Env) (*Result, error) {
 		res.Timeline.T = []float64{}
 	}
 	res.Advice = Advise(res)
+	res.Verdict = VerdictLine(res)
+	res.FollowUp = BuildFollowUp(env.Prev, res)
+	res.Edition = EditionName()
 	b, _ := json.Marshal(res)
 	// written beside and then swapped in, so a report opened meanwhile never reads half a file
 	tmp := filepath.Join(dir, FileAnalysis+".tmp")
@@ -1686,6 +1777,8 @@ func Run(dir string, env Env) (*Result, error) {
 		os.Remove(tmp)
 		os.WriteFile(filepath.Join(dir, FileAnalysis), b, 0o644)
 	}
+	writeOptions(dir, res.Options) // (before the routes: the schedule re-reads a session when its routes.json is newer)
+	writeRoutes(dir, res.Routes)   // a small copy for the Optimise schedule, which reads many sessions
 	return res, nil
 }
 
@@ -1815,7 +1908,7 @@ func (d *data) layerStates(win [][2]int64, marked bool) []LayerState {
 
 // ---------------------------------------------------------------- wording
 
-var causeOrder = []string{"reset", "ram", "driver", "paging", "shader", "world", "redscript", "cet", "gpu", "vram", "disk", "unexplained"}
+var causeOrder = []string{"reset", "ram", "driver", "paging", "shader", "world", "redscript", "cet", "gpu", "vram", "disk", "menu", "unexplained"}
 
 var causeLabel = map[string]string{
 	"shader":      "shader / RT pipeline build",
@@ -1829,7 +1922,26 @@ var causeLabel = map[string]string{
 	"driver":      "driver (interrupts / DPCs)",
 	"paging":      "game memory read back from disk",
 	"reset":       "screen reset (full screen re-applied)",
+	"menu":        "a game menu opened or closed",
 	"unexplained": "not explained by recorded work",
+}
+
+// menuWords: a markers line about a menu in plain words
+func menuWords(t string) string {
+	if t == "menu closed" {
+		return "a menu closed"
+	}
+	switch strings.TrimSpace(strings.TrimPrefix(t, "menu open")) {
+	case "PauseMenu":
+		return "the pause menu opened"
+	case "HubMenu":
+		return "a menu opened (inventory, map, journal ...)"
+	case "Vendor":
+		return "a vendor's menu opened"
+	case "DeathMenu":
+		return "the death screen opened"
+	}
+	return "a menu opened"
 }
 
 func fmtCount(n uint64) string {

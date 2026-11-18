@@ -12,9 +12,13 @@ import (
 	"time"
 )
 
-// Game markers come from Frame Lab's small session script (FrameLab.Markers.reds), which writes
-// "[Frame Lab] <text>" lines to CET's gamelog.log: loading screen on/off, in game, left the game.
-// They are used to keep loading screens and the main menu out of the stutter list.
+// Game markers: loading screen on/off, in game, left the game, and (2.5) every 5 seconds of play
+// "at <district> / <parent> <foot|car> <fight|calm>". They keep loading screens and the main menu
+// out of the stutter list, and tell which test route a recording covers.
+// On game 2.5+ they come from Frame Lab's small CET mod, which writes "<unix seconds>\t<text>" lines
+// to its own markers.log and flushes each one (CET's own gamelog.log is written in blocks, so its last
+// lines never reach the disk when the game closes badly). Older games use the session script
+// (FrameLab.Markers.reds), which writes "[Frame Lab] <text>" lines to CET's gamelog.log.
 
 const FileMarks = "markers.txt"
 
@@ -60,6 +64,29 @@ func ParseCETLog(path string, after time.Time) ([]GameMark, error) {
 	return out, sc.Err()
 }
 
+// ParseLuaMarks reads the markers.log of Frame Lab's CET mod ("<unix seconds>\t<text>") written at or after 'after'.
+func ParseLuaMarks(path string, after time.Time) ([]GameMark, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var out []GameMark
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimRight(line, "\r")
+		i := strings.IndexByte(line, '\t')
+		if i <= 0 {
+			continue
+		}
+		sec, err := strconv.ParseInt(line[:i], 10, 64)
+		text := strings.TrimSpace(line[i+1:])
+		if err != nil || text == "" || sec < after.Unix() {
+			continue
+		}
+		out = append(out, GameMark{UnixMs: float64(sec) * 1000, Text: text})
+	}
+	return out, nil
+}
+
 func WriteMarks(dir string, marks []GameMark) error {
 	var b strings.Builder
 	for _, m := range marks {
@@ -96,7 +123,9 @@ func notPlaying(marks []GameMark, startMs, endMs float64) [][2]float64 {
 	if len(marks) == 0 {
 		return nil
 	}
-	const padBefore, padAfter = 1000.0, 3000.0
+	// the CET log has whole seconds (the real moment is up to 1 s after the logged one) and the game
+	// often freezes for a frame just before a loading screen comes up: 2 s before, 3 s after
+	const padBefore, padAfter = 2000.0, 3000.0
 	var spans [][2]float64
 	inGame := false
 	outFrom := startMs // not playing until the first "in game"

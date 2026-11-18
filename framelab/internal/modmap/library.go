@@ -18,6 +18,9 @@ type Library struct {
 	Owner map[string]string // key -> zip path relative to Root
 	Zips  []ZipInfo
 	Names map[string]string // owner -> its name when it isn't a zip (MO2 mods, 2.5)
+	// Others: archives in the library Frame Lab can't look inside (.rar, .7z), relative to Root. Their names
+	// still carry the Nexus id and version of what was downloaded (2.5)
+	Others []string
 }
 
 type ZipInfo struct {
@@ -135,6 +138,14 @@ func LoadLibrary(root, cachePath string) *Library {
 		for _, k := range z.Keys {
 			if _, ok := lib.Owner[k]; !ok {
 				lib.Owner[k] = z.Rel
+			}
+		}
+	}
+	for _, pat := range []string{"*.rar", "*/*.rar", "*/*/*.rar", "*.7z", "*/*.7z", "*/*/*.7z"} {
+		m, _ := filepath.Glob(filepath.Join(root, pat))
+		for _, p := range m {
+			if rel, err := filepath.Rel(root, p); err == nil {
+				lib.Others = append(lib.Others, rel)
 			}
 		}
 	}

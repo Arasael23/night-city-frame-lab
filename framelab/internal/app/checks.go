@@ -28,8 +28,12 @@ type CheckRow struct {
 	Label       string `json:"label"`  // the status word shown
 	Action      string `json:"action,omitempty"`
 	ActionLabel string `json:"action_label,omitempty"`
-	What        string `json:"what,omitempty"`    // shown when the row is opened
-	UndoID      string `json:"undo_id,omitempty"` // journal entry a fix of this row writes
+	What        string `json:"what,omitempty"`       // shown when the row is opened
+	UndoID      string `json:"undo_id,omitempty"`    // journal entry a fix of this row writes
+	DIY         string `json:"diy,omitempty"`        // 2.5: the steps to do the fix yourself
+	Open        string `json:"open,omitempty"`       // 2.5: what the step's button opens: setting:<key>, usersettings, buildfile:<rel>
+	OpenLabel   string `json:"open_label,omitempty"` // the button's text
+	EFix        bool   `json:"efix,omitempty"`       // 2.5: Frame Lab 2.5E can try this fix for you
 }
 
 type CheckGroup struct {
@@ -56,6 +60,10 @@ func row(id, name, detail, status, label string) CheckRow {
 
 func (r CheckRow) act(id, label string) CheckRow { r.Action, r.ActionLabel = id, label; return r }
 func (r CheckRow) why(s string) CheckRow         { r.What = s; return r }
+func (r CheckRow) diy(steps, open, label string) CheckRow {
+	r.DIY, r.Open, r.OpenLabel = steps, open, label
+	return r
+}
 
 // Checks: the cached report for a build, or a new one when fresh is set or there is none yet
 func (s *Server) checks(i int, fresh bool) (*ChecksReport, error) {
@@ -285,12 +293,14 @@ func runChecks(cfg Config, b BuildCfg, p Paths) *ChecksReport {
 		g.Rows = append(g.Rows, row("bcd", "HPET and timer tweaks (bcdedit)", f.BootTimer["error"], "info", "Unknown"))
 	case len(bt) > 0:
 		g.Rows = append(g.Rows, row("bcd", "HPET and timer tweaks (bcdedit)", strings.Join(bt, " · "), "found", "Found").act("bcd_clear", "Remove").
+			diy("Open Command Prompt as administrator (Start, type cmd, right-click it, Run as administrator) and run "+bcdLines(bt)+". Then restart Windows. To put one back later: bcdedit /set <name> <value>.", "", "").
 			why("Old guides set these boot options. On today's PCs they usually make timing worse (HPET forced on is the classic). Remove puts Windows' default back; Undo sets them again."))
 	default:
 		g.Rows = append(g.Rows, row("bcd", "HPET and timer tweaks (bcdedit)", "Windows default", "fine", "Fine"))
 	}
 	if f.ReservedCpuSets {
 		g.Rows = append(g.Rows, row("cpusets", "Reserved CPU sets", "some cores are reserved away from programs", "found", "Found").act("cpusets_clear", "Clear").
+			diy(`Open Command Prompt as administrator and run: reg delete "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\kernel" /v ReservedCpuSets /f  -  then restart Windows.`, "", "").
 			why("A registry tweak keeps some cores away from everything except Windows. Left over from a guide, it takes cores away from the game."))
 	} else {
 		g.Rows = append(g.Rows, row("cpusets", "Reserved CPU sets", "none", "fine", "Fine"))
@@ -310,6 +320,7 @@ func runChecks(cfg Config, b BuildCfg, p Paths) *ChecksReport {
 	if ro, ok := platform.FileReadOnly(platform.UserSettingsPath()); ok {
 		if ro {
 			g.Rows = append(g.Rows, row("usro", "UserSettings.json read-only", "read-only: the game can't save settings", "found", "Found").act("us_writable", "Make writable").
+				diy("Open the folder, right-click UserSettings.json, Properties, untick Read-only, OK.", "usersettings", "Open the folder").
 				why("Some guides make the settings file read-only to lock tweaks in. The game then can't save changes you make in its menus."))
 		} else {
 			g.Rows = append(g.Rows, row("usro", "UserSettings.json read-only", "writable", "fine", "Fine"))
@@ -317,6 +328,7 @@ func runChecks(cfg Config, b BuildCfg, p Paths) *ChecksReport {
 	}
 	if len(f.FTH) > 0 {
 		g.Rows = append(g.Rows, row("fth", "Fault Tolerant Heap", "Windows put Cyberpunk2077.exe on its list after crashes: it slows memory calls", "found", "Found").act("fth_clear", "Clear").
+			diy(`Open Command Prompt as administrator and run: rundll32.exe fthsvc.dll,FthSysprepSpecialize  -  this empties the list for every program (Windows adds a program again only if it keeps crashing). Restart Windows afterwards.`, "", "").
 			why("After a program crashes a few times Windows runs it with a slower, safer memory allocator from then on. Clearing takes the game off that list; Undo puts it back."))
 	} else {
 		g.Rows = append(g.Rows, row("fth", "Fault Tolerant Heap", "the game isn't on its list", "fine", "Fine"))
@@ -327,13 +339,15 @@ func runChecks(cfg Config, b BuildCfg, p Paths) *ChecksReport {
 	g = CheckGroup{ID: "security", Title: "Windows security", Sub: "virtualisation-based security"}
 	switch {
 	case f.HVCI:
-		g.Rows = append(g.Rows, row("hvci", "VBS and memory integrity", "both on: about 5% fewer fps with ray tracing (Tom's Hardware). Experiments has the steps to test it off", "info", "On").act("goto:experiments", "Experiments"))
+		g.Rows = append(g.Rows, row("hvci", "VBS and memory integrity", "both on: about 5% fewer fps with ray tracing (Tom's Hardware). Experiments has the steps to test it off", "info", "On").act("goto:experiments", "Experiments").
+			diy("To test it: Windows Security, Device security, Core isolation details, Memory integrity off, restart, play the same part and compare. Switch it back on afterwards if it made no difference: it protects your PC.", "setting:coreisolation", "Open Core isolation"))
 	case f.VBS:
 		g.Rows = append(g.Rows, row("hvci", "VBS and memory integrity", "VBS on, memory integrity off", "info", "VBS"))
 	default:
 		g.Rows = append(g.Rows, row("hvci", "VBS and memory integrity", "off", "fine", "Off"))
 	}
 	r.Groups = append(r.Groups, g)
+	editionRows(r)
 	undoIDs := map[string]string{"fth": "fth", "debuglog": "debuglog:" + game, "usro": "usro", "bcd": "bcd_clear", "cpusets": "cpusets_clear"}
 	for gi := range r.Groups {
 		for ri := range r.Groups[gi].Rows {
@@ -586,6 +600,7 @@ func debugRow(game string) CheckRow {
 		}
 	}
 	return row("debuglog", "Debug logging", fmt.Sprintf("on in %s · logs %.0f MB", strings.Join(names, ", "), mb), "found", "Found").act("debug_off", "Turn off").
+		diy("Switch it off in each of these: "+debugSteps(game, files)+". It takes effect at the next game start.", "", "").
 		why("Debug logging writes a line for things the game does all the time, which costs time on every frame that logs and fills the drive. It is meant for hunting one problem, then switching off.")
 }
 
@@ -626,17 +641,20 @@ func (s *Server) checkAction(i int, id string) (string, error) {
 		return "", errors.New("no game build picked yet")
 	}
 	game := cfg.Builds[i].Path
-	switch id {
-	case "pawnio_get":
+	if !Experimental && writerCheck(id) {
+		return "", errors.New(onlyE) // the fixes below are 2.5E only (edition.go)
+	}
+	switch {
+	case id == "pawnio_get":
 		platform.OpenURL("https://pawnio.eu/")
 		return "pawnio.eu opened in your browser. After installing PawnIO, run Checks again.", nil
-	case "frametype_off":
+	case id == "frametype_off":
 		cfg.TrackFrameType = false
 		if err := s.Settings.Set(cfg); err != nil {
 			return "", err
 		}
 		return "Frame-type tracking is off (Settings can switch it back on).", nil
-	case "fth_clear":
+	case Experimental && id == "fth_clear": // 2.5E only (edition.go)
 		saved, err := platform.ClearFTH()
 		if err != nil {
 			return "", err
@@ -644,7 +662,7 @@ func (s *Server) checkAction(i int, id string) (string, error) {
 		b, _ := json.Marshal(saved)
 		undoAdd(s.Paths.Data, UndoEntry{ID: "fth", What: "Fault Tolerant Heap entries for the game", Kind: "fth", Data: b})
 		return "The game is off the Fault Tolerant Heap list.", nil
-	case "debug_off":
+	case Experimental && id == "debug_off":
 		var changed []UndoFile
 		for _, f := range debugFiles(game) {
 			b, err := os.ReadFile(f.Path)
@@ -687,7 +705,7 @@ func (s *Server) checkAction(i int, id string) (string, error) {
 			}
 		}
 		return "Debug logging is off in " + strings.Join(where, ", ") + ". It takes effect at the next game start.", nil
-	case "us_writable":
+	case Experimental && id == "us_writable":
 		p := platform.UserSettingsPath()
 		fi, err := os.Stat(p)
 		if err != nil {
@@ -698,7 +716,7 @@ func (s *Server) checkAction(i int, id string) (string, error) {
 		}
 		undoAdd(s.Paths.Data, UndoEntry{ID: "usro", What: "UserSettings.json read-only", Kind: "readonly", Data: mustJSON(p)})
 		return "UserSettings.json is writable again.", nil
-	case "bcd_clear", "cpusets_clear":
+	case Experimental && (id == "bcd_clear" || id == "cpusets_clear"):
 		was, err := clearTweak(id)
 		if was != nil {
 			undoAdd(s.Paths.Data, UndoEntry{ID: id, What: map[string]string{"bcd_clear": "boot timer options (bcdedit)", "cpusets_clear": "reserved CPU sets"}[id], Kind: id, Data: was})
@@ -712,6 +730,58 @@ func (s *Server) checkAction(i int, id string) (string, error) {
 }
 
 func mustJSON(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
+
+// editionRows: in Frame Lab 2.5 a fix that changes Windows or game files becomes its do-it-yourself steps
+// (with the note that 2.5E can try it), and the Experiments link becomes the steps to test it by hand.
+func editionRows(r *ChecksReport) {
+	if Experimental {
+		return
+	}
+	for gi := range r.Groups {
+		for ri := range r.Groups[gi].Rows {
+			x := &r.Groups[gi].Rows[ri]
+			switch {
+			case writerCheck(x.Action):
+				x.Action, x.ActionLabel, x.EFix = "", "", true
+				x.What = reUndoSentence.ReplaceAllString(x.What, ".")
+			case x.ID == "msi" && strings.Contains(x.What, "Experiments can switch"):
+				// MSI mode is a registry change in the card's device entry: no Windows page for it, so 2.5 leaves it to 2.5E
+				x.What = strings.Replace(x.What, "Experiments can switch MSI mode on (needs a restart, Undo puts it back).", "Switching it on means a registry change for the card's device (or the MSI Utility tool); most players should leave it.", 1)
+				x.EFix = true
+			case x.Action == "goto:experiments":
+				x.Action, x.ActionLabel = "", ""
+				x.Detail = strings.Replace(x.Detail, ". Experiments has the steps to test it off", "", 1)
+			}
+		}
+	}
+}
+
+// the part of a row's text about Frame Lab's own button (2.5 has the steps instead)
+var reUndoSentence = regexp.MustCompile(`(; |\. )(Clearing|Remove|Undo)[^.]*(Undo)[^.]*\.$|\. Undo [^.]*\.$`)
+
+func bcdLines(bt []string) string {
+	var out []string
+	for _, kv := range bt {
+		out = append(out, "bcdedit /deletevalue "+strings.Fields(kv)[0])
+	}
+	return strings.Join(out, ", then ")
+}
+
+func debugSteps(game string, files []debugFile) string {
+	var out []string
+	for _, f := range files {
+		rel, err := filepath.Rel(game, f.Path)
+		if err != nil {
+			rel = f.Path
+		}
+		if f.Kind == "red4ext" {
+			out = append(out, rel+" (set the log level to info)")
+		} else {
+			out = append(out, rel+" (set the debug switch to false)")
+		}
+	}
+	return strings.Join(out, "; ")
+}
 
 func clearTweak(id string) (json.RawMessage, error) {
 	switch id {

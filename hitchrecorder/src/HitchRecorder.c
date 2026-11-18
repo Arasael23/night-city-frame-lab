@@ -35,8 +35,8 @@
 #include "MinHook.h"
 
 #define HR_VERSION_MAJOR 1
-#define HR_VERSION_MINOR 1
-#define HR_VERSION_PATCH 1
+#define HR_VERSION_MINOR 3
+#define HR_VERSION_PATCH 0
 #define HR_STR2(x) #x
 #define HR_STR(x) HR_STR2(x)
 /* found by Night City Frame Lab to show which version is installed */
@@ -167,7 +167,8 @@ static wchar_t g_binPath[MAX_PATH];      /* the .bin being written */
 
 static struct {
     int enabled, loads, entities, gpuPso, gpuRes, spikeMs, maxMB, summarySec, markKey, captureMode, captureKey, vram, sessionOnly, scripts, cet;
-} g_cfg = { 1, 1, 1, 1, 1, 50, 2048, 60, 0x91, 1, 0x7A, 1, 0, 1, 1 };
+    int scriptsAll;   /* 1.3.0: session mode times scripts for the whole run, not only inside the F11 parts */
+} g_cfg = { 1, 1, 1, 1, 1, 50, 2048, 60, 0x91, 1, 0x7A, 1, 0, 1, 1, 0 };
 static volatile LONG g_capturing;      /* records are kept only while this is 1 (always 1 in capture mode 0) */
 
 /* Live state for Night City Frame Lab (read-only for the app): Local\HitchRecorder.State */
@@ -357,24 +358,53 @@ static volatile LONG g_bound, g_boundMods;
 #define FMAP_BITS 19
 static void* volatile g_fkey[1u << FMAP_BITS];
 static uint16_t g_fowner[1u << FMAP_BITS];
+static uint32_t g_ffid[1u << FMAP_BITS];         /* 1.2.1: function id (index into the g_fn* tables), 0 = none */
+
+/* 1.2.1: time per script function (only the ones matched by name from the compiled scripts file), for the
+   HOT and TOP lines in the log: which functions of a mod take the time */
+#define FN_MAX (1u << 17)
+static uint64_t g_fnName[FN_MAX];
+static uint16_t g_fnOwner[FN_MAX];
+static volatile LONG g_fnCount;
+static volatile LONG64 g_fnAll[FN_MAX], g_fnMain[FN_MAX];
+static volatile LONG g_fnCalls[FN_MAX];
+static volatile LONG64 g_fnIncl[FN_MAX];         /* 1.3.0: time including the timed functions it calls */
+static LONG64 g_fnPrev[FN_MAX];                  /* writer thread only: g_fnAll at the last HOT check */
+static LONG g_fnPrevCalls[FN_MAX];
+static LONG64 g_fnPrevMain[FN_MAX];
 static inline uint32_t fslot(const void* f) { return (uint32_t)((((uintptr_t)f >> 4) * 0x9E3779B97F4A7C15ull) >> (64 - FMAP_BITS)); }
-static void fmap_put(void* f, uint16_t owner)
+static void fmap_put2(void* f, uint16_t owner, uint64_t name)
 {
     uint32_t m = (1u << FMAP_BITS) - 1, i = fslot(f);
     for (uint32_t n = 0; n <= m; ++n, i = (i + 1) & m) {
         void* k = g_fkey[i];
-        if (k == f) { g_fowner[i] = owner; return; }
-        if (!k) { g_fowner[i] = owner; g_fkey[i] = f; return; }   /* owner first, then key (one writer: binding) */
+        if (k == f) {
+            g_fowner[i] = owner;
+            if (name && g_ffid[i]) { g_fnName[g_ffid[i]] = name; g_fnOwner[g_ffid[i]] = owner; }
+            return;
+        }
+        if (!k) {
+            g_fowner[i] = owner;
+            if (name) {
+                LONG id = InterlockedIncrement(&g_fnCount);
+                if (id > 0 && (uint32_t)id < FN_MAX) { g_fnName[id] = name; g_fnOwner[id] = owner; g_ffid[i] = (uint32_t)id; }
+            }
+            MemoryBarrier();
+            g_fkey[i] = f;                                    /* owner and id first, then key (one writer: binding) */
+            return;
+        }
     }
 }
-static inline uint16_t fmap_get(const void* f)
+static void fmap_put(void* f, uint16_t owner) { fmap_put2(f, owner, 0); }
+static inline uint16_t fmap_get2(const void* f, uint32_t* fid)
 {
     uint32_t m = (1u << FMAP_BITS) - 1, i = fslot(f);
     for (uint32_t n = 0; n < 64; ++n, i = (i + 1) & m) {
         void* k = g_fkey[i];
-        if (k == f) return g_fowner[i];
+        if (k == f) { *fid = g_ffid[i]; return g_fowner[i]; }
         if (!k) break;
     }
+    *fid = 0;
     return 1;
 }
 
@@ -463,7 +493,15 @@ static uint16_t owner_of_path(const char* path)
             p = q + 11;
         }
     }
-    if (!p) return 0;
+    if (!p) {                                       /* scripts a RED4ext plugin ships: "...\red4ext\plugins\Codeware\Scripts\x.reds" -> "Codeware" */
+        for (const char* q = path; *q; ++q)
+            if (!_strnicmp(q, "red4ext", 7) && (q[7] == '\\' || q[7] == '/') && !_strnicmp(q + 8, "plugins", 7) && (q[15] == '\\' || q[15] == '/'))
+                p = q + 16;
+        if (!p) return 0;
+        size_t k = 0;
+        while (p[k] && p[k] != '\\' && p[k] != '/') k++;
+        if (!p[k]) return 0;                        /* a file straight in plugins: not a plugin's script */
+    }
     char name[OWNER_NAME];
     size_t n = 0;
     while (p[n] && p[n] != '\\' && p[n] != '/' && n < OWNER_NAME - 1) n++;
@@ -538,11 +576,272 @@ static const char* learn_source(const void* info)
     return found;
 }
 
+/* 2.5.0: the engine no longer keeps a function's source file next to it, but the compiled scripts file the game
+   loads (r6\cache\final.redscripts.modded, written by redscript before the game binds anything) still lists every
+   function with its class and source file. At the first bind that file is read once into
+   (class name, function name) -> owner; the binder then looks each function up by its own names: FunctionInfo +0x8
+   is the full name (CName), +0xC8 the class definition, whose name is at +0x8 (checked in the 2.5.0 exe). A name
+   that only one owner uses is also kept on its own, in case the class can't be read. */
+#define SM_BITS 18                      /* 262144 slots; Overdrive (300+ mods) has about 56k scripted functions */
+static uint64_t* g_smCls;
+static uint64_t* g_smName;
+static uint16_t* g_smOwner;
+static uint64_t* g_snKey;
+static uint16_t* g_snOwner;             /* 0xFFFF: the name is used by more than one owner */
+static int g_useMap;                    /* 2.5.0 */
+static volatile LONG g_smState;         /* 0 not tried, 2 reading, 1 loaded, -1 not available (learning as in 1.1) */
+static volatile LONG g_smPair, g_smOne, g_smMiss;
+static uint32_t g_smFuncs, g_smMs;
+static char g_smWhy[160];
+/* 1.2.1: names for the HOT/TOP lines: (owner, function name hash) -> function and class name in a kept copy
+   of the compiled scripts file's string data */
+static char* g_strData;
+static uint32_t g_strLen;
+static uint64_t* g_nmKey;
+static uint32_t* g_nmFn;
+static uint32_t* g_nmCls;
+
+static uint64_t fnv1a64(const char* s, size_t n)
+{
+    uint64_t h = 0xCBF29CE484222325ull;
+    for (size_t i = 0; i < n; ++i) { h ^= (uint8_t)s[i]; h *= 0x100000001B3ull; }
+    return h;
+}
+static inline uint32_t smslot(uint64_t a, uint64_t b)
+{
+    return (uint32_t)((((a * 0x9E3779B97F4A7C15ull) ^ b) * 0xC2B2AE3D27D4EB4Full) >> (64 - SM_BITS));
+}
+static void sm_put(uint64_t cls, uint64_t name, uint16_t owner)
+{
+    uint32_t m = (1u << SM_BITS) - 1, i = smslot(cls, name);
+    for (uint32_t n = 0; n <= m; ++n, i = (i + 1) & m) {
+        if (!g_smName[i]) { g_smCls[i] = cls; g_smName[i] = name; g_smOwner[i] = owner; return; }
+        if (g_smName[i] == name && g_smCls[i] == cls) { g_smOwner[i] = owner; return; }
+    }
+}
+static int sm_get(uint64_t cls, uint64_t name, uint16_t* owner)
+{
+    uint32_t m = (1u << SM_BITS) - 1, i = smslot(cls, name);
+    for (uint32_t n = 0; n < 512; ++n, i = (i + 1) & m) {
+        if (!g_smName[i]) return 0;
+        if (g_smName[i] == name && g_smCls[i] == cls) { *owner = g_smOwner[i]; return 1; }
+    }
+    return 0;
+}
+static void sn_put(uint64_t name, uint16_t owner)
+{
+    uint32_t m = (1u << SM_BITS) - 1, i = smslot(0x5A5Aull, name);
+    for (uint32_t n = 0; n <= m; ++n, i = (i + 1) & m) {
+        if (!g_snKey[i]) { g_snKey[i] = name; g_snOwner[i] = owner; return; }
+        if (g_snKey[i] == name) { if (g_snOwner[i] != owner) g_snOwner[i] = 0xFFFF; return; }
+    }
+}
+static inline uint64_t nm_key(uint64_t name, uint16_t owner) { return (name ^ ((uint64_t)owner * 0x9E3779B97F4A7C15ull)) | 1; }
+static void nm_put(uint64_t name, uint16_t owner, uint32_t fnOff, uint32_t clsOff)
+{
+    if (!g_nmKey) return;
+    uint64_t key = nm_key(name, owner);
+    uint32_t m = (1u << SM_BITS) - 1, i = smslot(0xA5A5ull, key);
+    for (uint32_t n = 0; n <= m; ++n, i = (i + 1) & m) {
+        if (!g_nmKey[i]) { g_nmKey[i] = key; g_nmFn[i] = fnOff; g_nmCls[i] = clsOff; return; }
+        if (g_nmKey[i] == key) return;                       /* first class wins */
+    }
+}
+static int nm_get(uint64_t name, uint16_t owner, const char** fn, const char** cls)
+{
+    *fn = NULL; *cls = NULL;
+    if (!g_nmKey || !g_strData) return 0;
+    uint64_t key = nm_key(name, owner);
+    uint32_t m = (1u << SM_BITS) - 1, i = smslot(0xA5A5ull, key);
+    for (uint32_t n = 0; n < 4096; ++n, i = (i + 1) & m) {
+        if (!g_nmKey[i]) return 0;
+        if (g_nmKey[i] == key) {
+            if (g_nmFn[i] < g_strLen) *fn = g_strData + g_nmFn[i];
+            if (g_nmCls[i] < g_strLen) *cls = g_strData + g_nmCls[i];
+            return *fn != NULL;
+        }
+    }
+    return 0;
+}
+static int sn_get(uint64_t name, uint16_t* owner)
+{
+    uint32_t m = (1u << SM_BITS) - 1, i = smslot(0x5A5Aull, name);
+    for (uint32_t n = 0; n < 512; ++n, i = (i + 1) & m) {
+        if (!g_snKey[i]) return 0;
+        if (g_snKey[i] == name) { *owner = g_snOwner[i]; return g_snOwner[i] != 0xFFFF; }
+    }
+    return 0;
+}
+
+static inline uint32_t le32(const uint8_t* p) { uint32_t v; memcpy(&v, p, 4); return v; }
+static inline uint16_t le16(const uint8_t* p) { uint16_t v; memcpy(&v, p, 2); return v; }
+
+/* bundle layout (redscript-io, format version 14): 104-byte header ("REDS", version, flags, timestamp, build, crc,
+   segments, then six tables of offset/count/crc: string data, names, TweakDB ids, resources, definitions, strings);
+   a name is a u32 offset into the string data (0-terminated); a definition header is 20 bytes: name, parent,
+   offset, size, u16 type (1 class, 5 function, 9 source file). A function body starts with visibility (u8) and
+   flags (u32; bit 4 native); a scripted one then has its source file (definition index) and line.
+   A source file is index, path hash, crc, then the path (u16 length + bytes). */
+static int sm_parse(const uint8_t* b, size_t size)
+{
+    if (size < 104 || memcmp(b, "REDS", 4)) { snprintf(g_smWhy, sizeof g_smWhy, "not a compiled scripts file"); return 0; }
+    uint32_t ver = le32(b + 4);
+    if (ver != 14) { snprintf(g_smWhy, sizeof g_smWhy, "compiled scripts format %u (only 14 is known)", ver); return 0; }
+    uint32_t sdOff = le32(b + 32), sdLen = le32(b + 36);
+    uint32_t cnOff = le32(b + 44), cnCnt = le32(b + 48);
+    uint32_t dOff = le32(b + 80), dCnt = le32(b + 84);
+    if ((uint64_t)sdOff + sdLen > size || (uint64_t)cnOff + 4ull * cnCnt > size || (uint64_t)dOff + 20ull * dCnt > size || dCnt < 2) {
+        snprintf(g_smWhy, sizeof g_smWhy, "compiled scripts file: tables out of range");
+        return 0;
+    }
+#define SM_NAME(idx, outp, outn) do { (outp) = NULL; (outn) = 0; if ((idx) < cnCnt) { uint32_t so_ = le32(b + cnOff + 4ull * (idx)); \
+        if (so_ < sdLen) { const char* s_ = (const char*)b + sdOff + so_; const char* e_ = memchr(s_, 0, sdLen - so_); \
+        if (e_) { (outp) = s_; (outn) = (size_t)(e_ - s_); } } } } while (0)
+    uint16_t* srcOwner = (uint16_t*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, (size_t)dCnt * sizeof(uint16_t));
+    uint8_t* isSrc = (uint8_t*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dCnt);
+    if (!srcOwner || !isSrc) {
+        if (srcOwner) HeapFree(GetProcessHeap(), 0, srcOwner);
+        if (isSrc) HeapFree(GetProcessHeap(), 0, isSrc);
+        snprintf(g_smWhy, sizeof g_smWhy, "out of memory");
+        return 0;
+    }
+    char path[1024];
+    for (uint32_t i = 1; i < dCnt; ++i) {
+        const uint8_t* h = b + dOff + 20ull * i;
+        if (le16(h + 16) != 9) continue;
+        uint32_t off = le32(h + 8), dsz = le32(h + 12);
+        if (dsz < 14 || (uint64_t)off + dsz > size) continue;
+        uint32_t n = le16(b + off + 12);
+        if (14u + n > dsz || n >= sizeof path) continue;
+        memcpy(path, b + off + 14, n); path[n] = 0;
+        srcOwner[i] = owner_of_path(path);
+        isSrc[i] = 1;
+    }
+    uint32_t funcs = 0;
+    for (uint32_t i = 1; i < dCnt; ++i) {
+        const uint8_t* h = b + dOff + 20ull * i;
+        if (le16(h + 16) != 5) continue;
+        uint32_t off = le32(h + 8), dsz = le32(h + 12);
+        if (dsz < 13 || (uint64_t)off + dsz > size) continue;
+        if (le32(b + off + 1) & (1u << 4)) continue;          /* native: never runs through the interpreter */
+        uint32_t file = le32(b + off + 5);
+        uint16_t owner = (file < dCnt && isSrc[file]) ? srcOwner[file] : 1;
+        const char* nm; size_t nn;
+        SM_NAME(le32(h + 0), nm, nn);
+        if (!nm || !nn) continue;
+        uint64_t name = fnv1a64(nm, nn), cls = 0;
+        uint32_t parent = le32(h + 4), clsOff = 0xFFFFFFFFu;
+        if (parent && parent < dCnt) {
+            const char* cn; size_t cnn;
+            SM_NAME(le32(b + dOff + 20ull * parent), cn, cnn);
+            if (cn && cnn) { cls = fnv1a64(cn, cnn); clsOff = (uint32_t)(cn - ((const char*)b + sdOff)); }
+        }
+        nm_put(name, owner, (uint32_t)(nm - ((const char*)b + sdOff)), clsOff);
+        sm_put(cls, name, owner);
+        sn_put(name, owner);
+        funcs++;
+    }
+#undef SM_NAME
+    HeapFree(GetProcessHeap(), 0, srcOwner);
+    HeapFree(GetProcessHeap(), 0, isSrc);
+    g_smFuncs = funcs;
+    if (!funcs) { snprintf(g_smWhy, sizeof g_smWhy, "no scripted functions in the compiled scripts file"); return 0; }
+    return 1;
+}
+
+static void sm_load(void)
+{
+    uint64_t t0 = qpc();
+    LONG state = -1;
+    wchar_t root[1024], file[1100];
+    DWORD n = GetModuleFileNameW(NULL, root, 1024);
+    int ok = n > 0 && n < 1024;
+    for (int k = 0; ok && k < 3; ++k) {                       /* ...\bin\x64\Cyberpunk2077.exe -> game folder */
+        wchar_t* sl = wcsrchr(root, L'\\');
+        if (sl) *sl = 0; else ok = 0;
+    }
+    HANDLE fh = INVALID_HANDLE_VALUE;
+    if (ok) {
+        _snwprintf(file, 1100, L"%ls\\r6\\cache\\final.redscripts.modded", root); file[1099] = 0;
+        fh = CreateFileW(file, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+        if (fh == INVALID_HANDLE_VALUE) {
+            _snwprintf(file, 1100, L"%ls\\r6\\cache\\final.redscripts", root); file[1099] = 0;
+            fh = CreateFileW(file, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+        }
+    }
+    if (fh == INVALID_HANDLE_VALUE) {
+        snprintf(g_smWhy, sizeof g_smWhy, "compiled scripts file not found in r6\\cache");
+    } else {
+        LARGE_INTEGER sz;
+        uint8_t* buf = NULL;
+        if (GetFileSizeEx(fh, &sz) && sz.QuadPart >= 104 && sz.QuadPart < (1ll << 30))
+            buf = (uint8_t*)HeapAlloc(GetProcessHeap(), 0, (size_t)sz.QuadPart);
+        size_t got = 0;
+        while (buf && got < (size_t)sz.QuadPart) {
+            DWORD r = 0, want = (DWORD)(((size_t)sz.QuadPart - got) > (1u << 24) ? (1u << 24) : ((size_t)sz.QuadPart - got));
+            if (!ReadFile(fh, buf + got, want, &r, NULL) || !r) break;
+            got += r;
+        }
+        CloseHandle(fh);
+        size_t slots = (size_t)1 << SM_BITS;
+        g_smCls = (uint64_t*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, slots * 8);
+        g_smName = (uint64_t*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, slots * 8);
+        g_smOwner = (uint16_t*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, slots * 2);
+        g_snKey = (uint64_t*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, slots * 8);
+        g_snOwner = (uint16_t*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, slots * 2);
+        g_nmKey = (uint64_t*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, slots * 8);
+        g_nmFn = (uint32_t*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, slots * 4);
+        g_nmCls = (uint32_t*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, slots * 4);
+        if (!g_nmKey || !g_nmFn || !g_nmCls) g_nmKey = NULL;
+        if (buf && got == (size_t)sz.QuadPart && got >= 104) {    /* keep the string data for the names in the log */
+            uint32_t sdOff = le32(buf + 32), sdLen = le32(buf + 36);
+            if ((uint64_t)sdOff + sdLen <= got && (g_strData = (char*)HeapAlloc(GetProcessHeap(), 0, (size_t)sdLen + 1))) {
+                memcpy(g_strData, buf + sdOff, sdLen); g_strData[sdLen] = 0; g_strLen = sdLen;
+            }
+        }
+        if (!buf || got != (size_t)sz.QuadPart) snprintf(g_smWhy, sizeof g_smWhy, "could not read the compiled scripts file");
+        else if (!g_smCls || !g_smName || !g_smOwner || !g_snKey || !g_snOwner) snprintf(g_smWhy, sizeof g_smWhy, "out of memory");
+        else if (sm_parse(buf, got)) state = 1;
+        if (buf) HeapFree(GetProcessHeap(), 0, buf);
+    }
+    g_smMs = (uint32_t)((qpc() - t0) * 1000 / (uint64_t)g_freq.QuadPart);
+    if (state == 1) {
+        g_srcLearn = 0;
+        char f8[1200];
+        if (!WideCharToMultiByte(CP_UTF8, 0, file, -1, f8, sizeof f8, NULL, NULL)) strcpy(f8, "r6\\cache");
+        g_sdk->logger->InfoF(g_handle, "script owners from %s: %u scripted functions, %ld mods with scripts (%u ms)",
+                             f8, g_smFuncs, (long)g_boundMods, g_smMs);
+    } else {
+        g_sdk->logger->WarnF(g_handle, "script owners: %s; learning the source file slot instead", g_smWhy);
+    }
+    InterlockedExchange(&g_smState, state);
+}
+
 static uintptr_t hkBind(void* self, void* info, void* arg)
 {
     uintptr_t r = oBind(self, info, arg);
     const char* path = NULL;
     void* func;
+    if (g_useMap) {
+        if (g_smState == 0 && InterlockedCompareExchange(&g_smState, 2, 0) == 0)
+            sm_load();                                        /* first bind: the compiled scripts file is final by now */
+        while (g_smState == 2) Sleep(0);                      /* another thread is reading it */
+        if (g_smState == 1) {
+            if (!readable(info, 0xD0)) return r;
+            func = (void*)rd64(info, g_fnOff);
+            if (!func || ((uintptr_t)func & 7)) return r;
+            uint64_t name = rd64(info, 0x8), cls = 0;
+            const void* cdef = (const void*)rd64(info, 0xC8);
+            if (cdef && !((uintptr_t)cdef & 7) && readable(cdef, 0x10)) cls = rd64(cdef, 0x8);
+            uint16_t owner;
+            if (sm_get(cls, name, &owner)) InterlockedIncrement(&g_smPair);
+            else if (sn_get(name, &owner)) InterlockedIncrement(&g_smOne);
+            else { InterlockedIncrement(&g_smMiss); return r; }   /* stays "scripts without a source file" */
+            fmap_put2(func, owner, name);
+            InterlockedIncrement(&g_bound);
+            return r;
+        }
+    }
     if (g_srcLearn) {
         if (!probe_ok(info, LEARN_FIRST + 8 * LEARN_SLOTS)) return r;
         func = (void*)rd64(info, g_fnOff);
@@ -590,13 +889,19 @@ static SStack* sstack(void)
 }
 /* end of a timed call: its time minus the timed calls inside it goes to its owner; the depth is set
    back to the call's own slot, so the stack can never drift */
-static inline uint64_t sframe_end(SStack* s, int d, uint64_t t1)
+static inline uint64_t sframe_end2(SStack* s, int d, uint64_t t1, uint64_t* inclOut)
 {
     SFrame* fr = &s->f[d];
     uint64_t incl = t1 - fr->t0, excl = incl > fr->child ? incl - fr->child : 0;
     s->depth = d;
     if (d > 0) s->f[d - 1].child += incl;
+    *inclOut = incl;
     return excl;
+}
+static inline uint64_t sframe_end(SStack* s, int d, uint64_t t1)
+{
+    uint64_t incl;
+    return sframe_end2(s, d, t1, &incl);
 }
 static inline void sb_add(volatile LONG64 (*all)[MAX_OWNERS], volatile LONG64 (*mainT)[MAX_OWNERS], uint16_t owner, uint64_t t1, uint64_t excl)
 {
@@ -611,7 +916,8 @@ static uintptr_t hkExec(void* func, void* frame, void* result, void* rtype)
     if (!g_scriptsOn) return oExec(func, frame, result, rtype);
     SStack* s = sstack();
     if (!s || s->depth >= 160) return oExec(func, frame, result, rtype);
-    uint16_t owner = fmap_get(func);
+    uint32_t fid;
+    uint16_t owner = fmap_get2(func, &fid);
     /* the game's own script code run from a CET mod's Lua (Game.X(), Observe/Override) counts for that mod */
     if (owner <= 1 && s->depth > 0 && s->f[s->depth - 1].layer == 1) return oExec(func, frame, result, rtype);
     int d = s->depth++;
@@ -620,7 +926,15 @@ static uintptr_t hkExec(void* func, void* frame, void* result, void* rtype)
     fr->t0 = qpc();
     uintptr_t r = oExec(func, frame, result, rtype);
     uint64_t t1 = qpc();
-    sb_add(g_sbAll, g_sbMain, owner, t1, sframe_end(s, d, t1));
+    uint64_t incl;
+    uint64_t excl = sframe_end2(s, d, t1, &incl);
+    sb_add(g_sbAll, g_sbMain, owner, t1, excl);
+    if (fid) {
+        InterlockedAdd64(&g_fnAll[fid], (LONG64)excl);
+        InterlockedAdd64(&g_fnIncl[fid], (LONG64)incl);
+        if (GetCurrentThreadId() == g_mainTid) InterlockedAdd64(&g_fnMain[fid], (LONG64)excl);
+        InterlockedIncrement(&g_fnCalls[fid]);
+    }
     return r;
 }
 
@@ -1407,6 +1721,146 @@ static void vram_sample(void)
     buf_put(&r);
 }
 
+/* 1.2.1: HOT lines, once a second while script timing is on: every mod whose scripts took at least 40 ms in
+   that second, with its 6 slowest functions. TOP lines at the end: the 40 slowest mod functions over all marked
+   parts. Times are a function's own time, without the timed script functions it calls. */
+#define HOT_MS 40.0
+#define HOT_TOP 6
+#define TOP_N 40
+static uint64_t g_hotLast;
+static LONG64 g_hotOwner[MAX_OWNERS];
+static void fn_label(uint32_t fid, char* out, size_t n)
+{
+    const char* fn; const char* cls;
+    if (nm_get(g_fnName[fid], g_fnOwner[fid], &fn, &cls)) {
+        if (cls) snprintf(out, n, "%s::%s", cls, fn); else snprintf(out, n, "%s", fn);
+    } else snprintf(out, n, "#%016llx", (unsigned long long)g_fnName[fid]);
+}
+static double ticks_ms(LONG64 t) { return (double)t * 1000.0 / (double)g_freq.QuadPart; }
+static void fn_hot(int force)
+{
+    uint64_t now = qpc();
+    if (!g_hotLast) { g_hotLast = now; return; }
+    if (!force && now - g_hotLast < (uint64_t)g_freq.QuadPart) return;
+    double secs = (double)(now - g_hotLast) / (double)g_freq.QuadPart;
+    g_hotLast = now;
+    LONG n = g_fnCount; if (n >= (LONG)FN_MAX) n = (LONG)FN_MAX - 1;
+    LONG no = g_owners; if (no > MAX_OWNERS) no = MAX_OWNERS;
+    memset(g_hotOwner, 0, sizeof(LONG64) * (size_t)no);
+    for (LONG i = 1; i <= n; ++i) {
+        LONG64 d = g_fnAll[i] - g_fnPrev[i];
+        if (d > 0 && g_fnOwner[i] < no) g_hotOwner[g_fnOwner[i]] += d;
+    }
+    if (g_log) {
+        char ts[32]; fmt_time(ts, sizeof ts, to_us(now - (uint64_t)g_qpc0.QuadPart));
+        for (LONG o = 2; o < no; ++o) {
+            double ms = ticks_ms(g_hotOwner[o]);
+            if (ms < HOT_MS * secs) continue;
+            uint32_t top[HOT_TOP] = {0}; LONG64 tv[HOT_TOP] = {0};
+            for (LONG i = 1; i <= n; ++i) {
+                if (g_fnOwner[i] != o) continue;
+                LONG64 d = g_fnAll[i] - g_fnPrev[i];
+                if (d <= tv[HOT_TOP - 1]) continue;
+                int k = HOT_TOP - 1;
+                while (k > 0 && d > tv[k - 1]) { tv[k] = tv[k - 1]; top[k] = top[k - 1]; --k; }
+                tv[k] = d; top[k] = (uint32_t)i;
+            }
+            fprintf(g_log, "HOT %s  %s: %.0f ms of script time in %.1f s |", ts, g_ownerName[o], ms, secs);
+            for (int k = 0; k < HOT_TOP && top[k]; ++k) {
+                char lbl[200]; fn_label(top[k], lbl, sizeof lbl);
+                uint32_t i = top[k];
+                fprintf(g_log, " %s %.1f ms (%ld calls, main thread %.1f ms);", lbl, ticks_ms(tv[k]),
+                        (long)(g_fnCalls[i] - g_fnPrevCalls[i]), ticks_ms(g_fnMain[i] - g_fnPrevMain[i]));
+            }
+            fprintf(g_log, "\n");
+        }
+    }
+    for (LONG i = 1; i <= n; ++i) { g_fnPrev[i] = g_fnAll[i]; g_fnPrevCalls[i] = g_fnCalls[i]; g_fnPrevMain[i] = g_fnMain[i]; }
+}
+/* 1.3.0: <recording>.fn.txt, read by Night City Frame Lab: what each script function of a mod cost in every
+   5 seconds of the run, so the cost can be put next to where the player was. Lines (tab separated):
+     N  function id  mod  function        (once, before the function's first F line)
+     T  end of the block (microseconds since game start)  length of the block (microseconds)
+     F  function id  own time  own time on the main thread  time with the functions it calls  calls   (microseconds)
+   A function is written once it has 50 microseconds of own time to report (or 500 with its callees); less than
+   that is carried into the next block, and the last block writes whatever is left. */
+#define FS_EVERY_S 5
+#define FS_MIN_OWN_US 50
+#define FS_MIN_INCL_US 500
+static FILE* g_fsFile;
+static int g_fsTried;
+static uint64_t g_fsLast;
+static LONG64 g_fsPrev[FN_MAX], g_fsPrevMain[FN_MAX], g_fsPrevIncl[FN_MAX];
+static LONG g_fsPrevCalls[FN_MAX];
+static uint8_t g_fsNamed[FN_MAX / 8];
+static void fn_series(int force)
+{
+    if (!g_binPath[0]) return;
+    uint64_t now = qpc();
+    if (!g_fsLast) { g_fsLast = now; return; }
+    if (!force && now - g_fsLast < (uint64_t)FS_EVERY_S * (uint64_t)g_freq.QuadPart) return;
+    LONG n = g_fnCount; if (n >= (LONG)FN_MAX) n = (LONG)FN_MAX - 1;
+    LONG no = g_owners; if (no > MAX_OWNERS) no = MAX_OWNERS;
+    int head = 0;
+    for (LONG i = 1; i <= n; ++i) {
+        uint16_t o = g_fnOwner[i];
+        if (o < 2 || o >= no) continue;                   /* the game's own scripts are not a mod's to fix */
+        LONG64 a = g_fnAll[i], m = g_fnMain[i], in = g_fnIncl[i];
+        LONG c = g_fnCalls[i];
+        LONG64 da = a - g_fsPrev[i], di = in - g_fsPrevIncl[i];
+        if (da <= 0 && di <= 0) continue;
+        uint64_t ownUs = to_us((uint64_t)(da > 0 ? da : 0)), inclUs = to_us((uint64_t)(di > 0 ? di : 0));
+        if (!force && ownUs < FS_MIN_OWN_US && inclUs < FS_MIN_INCL_US) continue;
+        if (!g_fsFile) {
+            if (g_fsTried) return;
+            g_fsTried = 1;
+            wchar_t p[MAX_PATH + 16];
+            _snwprintf(p, MAX_PATH + 16, L"%.*ls.fn.txt", (int)(wcslen(g_binPath) - 4), g_binPath);
+            g_fsFile = _wfopen(p, L"w");
+            if (!g_fsFile) return;
+        }
+        if (!head) {
+            fprintf(g_fsFile, "T\t%llu\t%llu\n", (unsigned long long)to_us(now - (uint64_t)g_qpc0.QuadPart),
+                    (unsigned long long)to_us(now - g_fsLast));
+            head = 1;
+        }
+        if (!(g_fsNamed[i >> 3] & (1u << (i & 7)))) {
+            char lbl[200]; fn_label((uint32_t)i, lbl, sizeof lbl);
+            fprintf(g_fsFile, "N\t%ld\t%s\t%s\n", (long)i, g_ownerName[o], lbl);
+            g_fsNamed[i >> 3] |= (uint8_t)(1u << (i & 7));
+        }
+        LONG64 dm = m - g_fsPrevMain[i];
+        fprintf(g_fsFile, "F\t%ld\t%llu\t%llu\t%llu\t%ld\n", (long)i, (unsigned long long)ownUs,
+                (unsigned long long)to_us((uint64_t)(dm > 0 ? dm : 0)), (unsigned long long)inclUs, (long)(c - g_fsPrevCalls[i]));
+        g_fsPrev[i] = a; g_fsPrevMain[i] = m; g_fsPrevIncl[i] = in; g_fsPrevCalls[i] = c;
+    }
+    g_fsLast = now;
+    if (g_fsFile) fflush(g_fsFile);
+}
+static void fn_top(void)
+{
+    if (!g_log) return;
+    LONG n = g_fnCount; if (n >= (LONG)FN_MAX) n = (LONG)FN_MAX - 1;
+    uint32_t top[TOP_N] = {0}; LONG64 tv[TOP_N] = {0};
+    for (LONG i = 1; i <= n; ++i) {
+        if (g_fnOwner[i] < 2) continue;
+        LONG64 v = g_fnAll[i];
+        if (v <= tv[TOP_N - 1]) continue;
+        int k = TOP_N - 1;
+        while (k > 0 && v > tv[k - 1]) { tv[k] = tv[k - 1]; top[k] = top[k - 1]; --k; }
+        tv[k] = v; top[k] = (uint32_t)i;
+    }
+    if (!top[0]) return;
+    fprintf(g_log, "\nTOP SCRIPT FUNCTIONS OF MODS (all marked parts; a function's own time, without the timed functions it calls)\n");
+    for (int k = 0; k < TOP_N && top[k]; ++k) {
+        uint32_t i = top[k];
+        char lbl[200]; fn_label(i, lbl, sizeof lbl);
+        fprintf(g_log, "  %-30s %9.1f ms  main thread %9.1f ms  %9ld calls  %s\n", g_ownerName[g_fnOwner[i]],
+                ticks_ms(tv[k]), ticks_ms(g_fnMain[i]), (long)g_fnCalls[i], lbl);
+    }
+    fprintf(g_log, "\n");
+}
+
 static DWORD WINAPI writer_main(void* unused)
 {
     (void)unused;
@@ -1415,6 +1869,8 @@ static DWORD WINAPI writer_main(void* unused)
         DWORD w = WaitForMultipleObjects(g_wake ? 2 : 1, hs, FALSE, 200);
         if (g_cfg.vram && g_frame >= 150) vram_sample();   /* start once the game is drawing (menu) */
         script_flush(0);
+        if (g_scriptsOn) fn_hot(0); else g_hotLast = 0;
+        if (g_hooks & HOOK_SCRIPT_EXEC) fn_series(0);
         drain();
         spikes_flush(to_us(qpc() - (uint64_t)g_qpc0.QuadPart), 0);
         if (g_bin) fflush(g_bin);
@@ -1423,6 +1879,10 @@ static DWORD WINAPI writer_main(void* unused)
     }
     script_flush(1);
     if (g_cfg.scripts) owners_write();
+    if (g_scriptsOn) fn_hot(1);
+    if (g_hooks & HOOK_SCRIPT_EXEC) fn_series(1);
+    if (g_fsFile) { fclose(g_fsFile); g_fsFile = NULL; }
+    fn_top();
     drain();
     spikes_flush(0, 1);
     summary_write(to_us(qpc() - (uint64_t)g_qpc0.QuadPart));
@@ -1442,13 +1902,22 @@ static bool running_enter(void* app)
     (void)app;
     g_mainTid = GetCurrentThreadId();
     if (g_cetMissing && g_mhOk && g_cfg.cet && g_tls != TLS_OUT_OF_INDEXES) hook_cet();   /* CET loaded after us: mods it already started stay "CET itself" until reloaded */
+    if (g_cfg.captureMode == 0 || (g_cfg.captureMode == 2 && g_cfg.scriptsAll)) script_set(1);   /* the CET hook may only exist from here on */
     uint64_t t = qpc();
     push(K_MARK, g_hooks, t, t, 1, 0);
     if (g_log) {
         fprintf(g_log, "Running state entered (main thread %lu). Engine hooks: 0x%x\n", (unsigned long)g_mainTid, (unsigned)g_hooks);
         if (g_hooks & HOOK_SCRIPT_EXEC)
             fprintf(g_log, "Script functions bound to source files: %ld, mods with scripts: %ld (timed while %s)\n",
-                    (long)g_bound, (long)g_boundMods, g_cfg.captureMode == 2 ? "an F11 mark is on" : g_cfg.captureMode == 1 ? "recording" : "the game runs");
+                    (long)g_bound, (long)g_boundMods,
+                    g_cfg.captureMode == 2 ? (g_cfg.scriptsAll ? "the game runs (test recording)" : "an F11 mark is on") : g_cfg.captureMode == 1 ? "recording" : "the game runs");
+        if (g_hooks & HOOK_SCRIPT_EXEC && g_useMap) {
+            if (g_smState == 1)
+                fprintf(g_log, "Script owners from the compiled scripts file: %u functions read in %u ms; binds matched by class + name %ld, by name only %ld, not found %ld\n",
+                        g_smFuncs, g_smMs, (long)g_smPair, (long)g_smOne, (long)g_smMiss);
+            else
+                fprintf(g_log, "Script owners: %s\n", g_smWhy[0] ? g_smWhy : "not read (no script was bound)");
+        }
         if (g_hooks & HOOK_CET)
             fprintf(g_log, "CET Lua timing on, CET mods recognised so far: %ld\n", (long)(g_cetOwners - 1));
         else if (g_cfg.cet)
@@ -1497,7 +1966,7 @@ static bool running_update(void* app)
             int down = key_down(g_cfg.captureKey);
             if (down && !g_capKeyDown) {
                 g_focus = !g_focus;
-                script_set(g_focus);
+                script_set(g_focus || g_cfg.scriptsAll);
                 push(K_MARK, 0, t, t, g_focus ? 6 : 7, 0);
                 if (g_shared) {
                     if (g_focus) { g_shared->captureStartQpc = t; g_shared->captureStopQpc = 0; }
@@ -1563,6 +2032,7 @@ static void read_cfg(void)
     g_cfg.sessionOnly = GetPrivateProfileIntW(L"Recorder", L"SessionOnly", 0, ini);   /* 1 = switch itself off for the next start */
     g_cfg.scripts     = GetPrivateProfileIntW(L"Recorder", L"RecordScripts", 1, ini);  /* REDscript time per mod (F11 parts only in session mode) */
     g_cfg.cet         = GetPrivateProfileIntW(L"Recorder", L"RecordCET", 1, ini);      /* CET Lua time per mod (same) */
+    g_cfg.scriptsAll  = GetPrivateProfileIntW(L"Recorder", L"ScriptsWholeRun", 0, ini) != 0;   /* 1.3.0: session mode times scripts all the time */
     if (g_cfg.captureMode < 0 || g_cfg.captureMode > 2) g_cfg.captureMode = 1;     /* 0 always, 1 F11 on/off, 2 session (F11 marks) */
     if (g_cfg.spikeMs < 5) g_cfg.spikeMs = 5;
     if (g_cfg.summarySec < 10) g_cfg.summarySec = 10;
@@ -1696,7 +2166,7 @@ static bool on_load(void)
         /* checked in the 2.31 and 2.5.0 exes: same bind (this, FunctionInfo*, arg) and interpreter entry
            Execute(function, frame, result, resultType) */
         if (is231 || is250) {
-            if (is250) { g_fnOff = 0x40; g_srcLearn = 1; }
+            if (is250) { g_fnOff = 0x40; g_srcLearn = 1; g_useMap = 1; }
             strcpy(g_ownerName[0], "game scripts");
             strcpy(g_ownerName[1], "scripts without a source file");
             if (g_tls != TLS_OUT_OF_INDEXES) {
@@ -1718,7 +2188,7 @@ static bool on_load(void)
     if (g_mhOk && g_cfg.cet && g_tls != TLS_OUT_OF_INDEXES) hook_cet();
 
     g_capturing = g_cfg.captureMode != 1;
-    script_set(g_cfg.captureMode == 0);
+    script_set(g_cfg.captureMode == 0 || (g_cfg.captureMode == 2 && g_cfg.scriptsAll));
     open_outputs();
     write_header();
     shared_open();
@@ -1732,7 +2202,8 @@ static bool on_load(void)
         if (g_cfg.captureMode == 1)
             fprintf(g_log, "Capture mode: records only between presses of the capture key (VK %d; F11 = 122)\n\n", g_cfg.captureKey);
         else if (g_cfg.captureMode == 2)
-            fprintf(g_log, "Session mode (Night City Frame Lab): records the whole game run; the capture key (VK %d) marks the part to look at\n\n", g_cfg.captureKey);
+            fprintf(g_log, "Session mode (Night City Frame Lab): records the whole game run; the capture key (VK %d) marks the part to look at%s\n\n", g_cfg.captureKey,
+                    g_cfg.scriptsAll ? "; script time is measured for the whole run (test recording)" : "");
         else
             fprintf(g_log, "Capture mode: records all the time\n\n");
         fflush(g_log);

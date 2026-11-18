@@ -136,7 +136,7 @@ var expDefs = []ExpDef{
 		When:   "at once"},
 	{ID: "msi", Group: "driver", New: true, Name: "Graphics card interrupts in MSI mode",
 		What:   "Switches the graphics card to message-signalled interrupts (MSISupported = 1 for the card in the registry).",
-		Expect: "Most NVIDIA and AMD cards already use MSI mode: this only matters if the Checks tab shows it off. Can lower interrupt latency.",
+		Expect: "Most NVIDIA and AMD cards already use MSI mode: this only matters if PC checks shows it off. Can lower interrupt latency.",
 		When:   "after a restart"},
 	{ID: "memcomp", Group: "memory", New: true, Name: "Memory compression off",
 		What:   "Windows stops compressing memory pages in RAM (Disable-MMAgent -MemoryCompression).",

@@ -19,6 +19,24 @@ type FoundBuild struct {
 	Known bool   `json:"known"` // already in the settings
 }
 
+// gameRoot tidies a typed, pasted or picked game path: quotes and spaces go, and the exe, bin or
+// bin\x64 inside a game folder lead back to the folder itself.
+func gameRoot(p string) string {
+	p = strings.TrimSpace(strings.Trim(strings.TrimSpace(p), `"'`))
+	if p == "" {
+		return p
+	}
+	p = filepath.Clean(p)
+	for i := 0; i < 3 && !isGameDir(p); i++ {
+		l := strings.ToLower(winBase(p))
+		if l != "cyberpunk2077.exe" && l != "x64" && l != "bin" {
+			break
+		}
+		p = filepath.Dir(p)
+	}
+	return p
+}
+
 func isGameDir(p string) bool {
 	st, err := os.Stat(filepath.Join(p, "bin", "x64", "Cyberpunk2077.exe"))
 	return err == nil && !st.IsDir()
@@ -40,6 +58,19 @@ var commonGameDirs = [][]string{
 	{"Epic Games", "Cyberpunk2077"},
 	{"Games", "Epic Games", "Cyberpunk2077"},
 	{"Program Files", "Epic Games", "Cyberpunk2077"},
+}
+
+// folders whose "Cyberpunk..." subfolders are looked at on every drive
+var commonGameParents = [][]string{
+	{},
+	{"Games"},
+	{"GOG Games"},
+	{"GOG Galaxy", "Games"},
+	{"Program Files (x86)", "GOG Galaxy", "Games"},
+	{"Program Files", "GOG Galaxy", "Games"},
+	{"SteamLibrary", "steamapps", "common"},
+	{"Steam", "steamapps", "common"},
+	{"Epic Games"},
 }
 
 func storeOf(p string) string {
@@ -84,6 +115,22 @@ func detectBuilds(existing []BuildCfg) []FoundBuild {
 	}
 	for _, c := range cands {
 		add(c)
+	}
+	// any "Cyberpunk..." folder straight on a drive or in the usual game folders, even when no plain
+	// install sits next to it (e.g. a copy alone on another drive: "S:\Cyberpunk 2077 - Vanilla+")
+	for _, d := range platform.Drives() {
+		for _, rel := range commonGameParents {
+			parent := filepath.Join(append([]string{d}, rel...)...)
+			ents, err := os.ReadDir(parent)
+			if err != nil {
+				continue
+			}
+			for _, e := range ents {
+				if e.IsDir() && strings.HasPrefix(strings.ToLower(e.Name()), "cyberpunk") {
+					add(cand{"", filepath.Join(parent, e.Name())})
+				}
+			}
+		}
 	}
 	// copies next to an install ("Cyberpunk 2077 - Vanilla+", "Cyberpunk 2077 modded", ...)
 	for _, f := range append([]cand(nil), found...) {

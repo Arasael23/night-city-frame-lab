@@ -1,4 +1,4 @@
-# Building Night City Frame Lab 2.31.0
+# Building Night City Frame Lab 2.5.0 and 2.5.0E
 
 The release is cross-compiled on Linux. On Windows, use WSL with Ubuntu 24.04 and follow the same steps.
 
@@ -7,7 +7,7 @@ The release is cross-compiled on Linux. On Windows, use WSL with Ubuntu 24.04 an
 Ubuntu 24.04:
 
 ```sh
-sudo apt install gcc-mingw-w64-x86-64-win32 binutils-mingw-w64-x86-64 zip
+sudo apt install gcc-mingw-w64-x86-64-win32 binutils-mingw-w64-x86-64 zip unzip
 #   gcc-mingw-w64-x86-64-win32   13.2.0-6ubuntu1+26.1        (x86_64-w64-mingw32-gcc 13-win32)
 #   binutils-mingw-w64-x86-64    2.41.90.20240122-1ubuntu1+11.4
 ```
@@ -22,21 +22,27 @@ No network access is needed during the build: all Go dependencies are in `framel
 ./build.sh
 ```
 
-This produces `out/NightCityFrameLab.exe`, `out/GPU check.exe` and `out/HitchRecorder.dll` and prints their SHA-256:
+This produces both editions from the same source, `out/NightCityFrameLab.exe` (Frame Lab 2.5) and
+`out/E/NightCityFrameLab.exe` (Frame Lab 2.5E, built with `-tags experimental`), plus `out/GPU check.exe`
+and `out/HitchRecorder.dll`, and prints their SHA-256:
 
 | File | SHA-256 |
 |---|---|
-| NightCityFrameLab.exe | `953a83b1d2aab36ae317208b2b4c798be4c5d547ae35028bfcbfd39bb6d304ba` |
-| GPU check.exe | `4d53a5f58e7fa66cb57de37aabc11560e9528bdc983c62604aa1adc3c6a55cbe` |
-| HitchRecorder.dll | `d749031b9b53f67df017d60a62ad903950260fb94ba4ec75504391b44ad7dd1f` |
+| NightCityFrameLab.exe (2.5) | `7d6b63d09072f1c85db41fc2bfc1bba3e9a002bacec20e70dc1f7489bc88e094` |
+| E/NightCityFrameLab.exe (2.5E) | `3b315b31db648cc7b95311c5ef5993ccb696e8bdc177d2c68a5a80f5bab42100` |
+| GPU check.exe | `821c9005d189703b7592febd803863b6799a03dcf545d5939c1ae34916e85cec` |
+| HitchRecorder.dll | `68a50bc937df5b91da07aa0537aa08cc6170e457a1ce018ccaf93e14c29b653d` |
 
 What `build.sh` runs:
 
 ```sh
-# Frame Lab: icon, manifest and version info, then the exe
-cd framelab/cmd/framelab && x86_64-w64-mingw32-windres -O coff -o rsrc_windows_amd64.syso resource.rc
+# Frame Lab, once per edition: icon, manifest and version info (resource.rc with the edition's
+# version and description), then the exe; 2.5E adds -tags experimental
+cd framelab/cmd/framelab && x86_64-w64-mingw32-windres -O coff -o rsrc_windows_amd64.syso edition.rc
 cd framelab && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
-  go build -mod=vendor -trimpath -buildvcs=false -ldflags "-H windowsgui -s -w" -o ../out/NightCityFrameLab.exe ./cmd/framelab
+  go build -mod=vendor -trimpath -buildvcs=false -tags "" -ldflags "-H windowsgui -s -w" -o ../out/NightCityFrameLab.exe ./cmd/framelab
+cd framelab && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+  go build -mod=vendor -trimpath -buildvcs=false -tags experimental -ldflags "-H windowsgui -s -w" -o ../out/E/NightCityFrameLab.exe ./cmd/framelab
 
 # HitchRecorder
 x86_64-w64-mingw32-gcc -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -O2 -std=gnu11 -Wall -Wextra -Wno-unused-parameter -Wno-cast-function-type \
@@ -48,23 +54,39 @@ x86_64-w64-mingw32-gcc -D_WIN32_WINNT=0x0A00 -DWINVER=0x0A00 -O2 -std=gnu11 -Wal
 
 ## 3. Release zip
 
-The download also contains Intel PresentMon 2.6.0, the official release binary from
+Both downloads contain Intel PresentMon 2.6.0, the official release binary from
 https://github.com/GameTechDev/PresentMon/releases (version 2.6.0, file `PresentMon-2.6.0-x64.exe`,
 SHA-256 `b2a706bc6ad475749e3b7e3409263aa1e6906d45bdcf993f6dbc0f660188f1af`). Put that file next to
 `build.sh`.
+
+The 2.5E download also contains the WolvenKit console 9.1.0, the official release from
+https://github.com/WolvenKit/WolvenKit/releases/tag/9.1.0 (file `WolvenKit.Console-9.1.0.zip`,
+SHA-256 `7caf49cdf0f478b484b1a5a27e5aef261b879fabea7e72e33ca60eff3b834f4f`), unpacked and unchanged
+into `components\WolvenKit`, with the GPL-3.0 text and a note on where its source is
+(`release/wolvenkit/`). Put the zip next to `build.sh` before `./build.sh package`; it is not built
+here. Frame Lab reads the game's file names from it and starts its console as a separate program.
 
 It also contains one PawnIO module, `release/pawnio/AMDFamily17.bin` (in this repository), the unchanged
 signed build from https://github.com/namazso/PawnIO.Modules/releases/tag/0.2.11 (`release_0_2_11.zip`,
 SHA-256 `43608cb89bc84247fef1368a139013f7d043e17db6d6c8dfc9b46bf0905a81f4`; the module itself
 `dae74615761b78bdf064dfb3e136252ddcc6fc727d88f14738d0e5800d427a91`, LGPL-2.1). The PawnIO driver is not
-included: users install it themselves from pawnio.eu. Then:
+included: users install it themselves from pawnio.eu. The mod data in `release/optimise/` (Nexus ids,
+names, file paths and path hashes, TweakXL values and script facts of downloaded mods; no file contents)
+goes into `components\Optimise`. Then:
 
 ```sh
 ./build.sh package
 ```
 
-`out/Night City Frame Lab 2.31.0.zip` then has SHA-256
-`1d991f7fb63ea0c6088a495635bb157f3737d6fec80a262999bcd63c6b4fb299` (file times are fixed so the zip is reproducible).
+This gives the two downloads (file times are fixed so the zips are reproducible):
+
+| Zip | SHA-256 |
+|---|---|
+| `out/Night City Frame Lab 2.5.0.zip` (Frame Lab 2.5) | `5d985c4a7f1124770e8d467987860768c7475ed21b02a4382cc85184c3902468` |
+| `out/Night City Frame Lab 2.5.0E.zip` (Frame Lab 2.5E) | `88aa75fddb0b62271270ba556a1af58f07c74a5ffde2b67789fb72fd985b274d` |
+
+Each zip has its edition's exe and README (`release/README.txt` or `release/README-E.txt`); only 2.5E has
+`components\FrameLabOptions` and `components\WolvenKit`.
 
 ## Third-party code
 

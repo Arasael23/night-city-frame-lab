@@ -5,13 +5,15 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 )
 
-const Version = "2.31.0"
+const Version = "2.5.0"
 
 type BuildCfg struct {
 	Name string `json:"name"`
@@ -31,6 +33,7 @@ type Config struct {
 	NoWinEvents    bool       `json:"no_windows_events,omitempty"` // Windows event recorder off (on by default)
 	FeltKey        int        `json:"felt_key,omitempty"`          // "I felt a stutter" key, Windows key code (0 = F10) (2.5)
 	MarkKey        int        `json:"mark_key,omitempty"`          // "mark a part" key = HitchRecorder's capture key (0 = F11) (2.5)
+	LiveUpdates    bool       `json:"live_updates,omitempty"`      // Optimise: ask Nexus Mods for newer mod versions (off unless switched on) (2.5)
 }
 
 // Paths of the app's own folders (portable: everything lives next to the exe).
@@ -117,6 +120,32 @@ func (s *Settings) Set(c Config) error {
 	if err := checkKeys(&c); err != nil {
 		return err
 	}
+	// builds: tidy pasted paths, name the unnamed ones, and refuse a new folder that isn't a game folder
+	// (one already saved is kept as it is, so a drive that is unplugged for now doesn't block saving)
+	old := map[string]bool{}
+	taken := map[string]bool{}
+	for _, b := range s.cfg.Builds {
+		old[cleanKey(b.Path)] = true
+	}
+	for _, b := range c.Builds {
+		if b.Name = strings.TrimSpace(b.Name); b.Name != "" {
+			taken[strings.ToLower(b.Name)] = true
+		}
+	}
+	for i := range c.Builds {
+		b := &c.Builds[i]
+		b.Name = strings.TrimSpace(b.Name)
+		b.Path = gameRoot(b.Path)
+		if b.Path == "" {
+			return fmt.Errorf("build %d has no game folder", i+1)
+		}
+		if !isGameDir(b.Path) && !old[cleanKey(b.Path)] {
+			return fmt.Errorf("%s is not a Cyberpunk 2077 folder: pick the folder that has bin\\x64\\Cyberpunk2077.exe in it", b.Path)
+		}
+		if b.Name == "" {
+			b.Name = buildName(storeOf(b.Path), b.Path, taken)
+		}
+	}
 	for i := range c.Builds {
 		if err := checkMO2(&c.Builds[i]); err != nil {
 			return err
@@ -138,6 +167,8 @@ type Components struct {
 	HitchPkg   string // folder holding red4ext\plugins\HitchRecorder (to install from), or ""
 	Markers    string // FrameLab.Markers.reds (loading-screen markers for a session), or ""
 	Markers25  string // the same for game 2.5 and later (the game itself has LoadingScreenProgressBarController.OnUninitialize there)
+	MarkersLua string // folder with the markers as a CET mod (init.lua), used on game 2.5 and later, or ""
+	OptionsLua string // folder with the kept-options CET mod (init.lua), or ""
 }
 
 func firstExisting(paths ...string) string {
@@ -170,5 +201,11 @@ func FindComponents(p Paths, c Config) Components {
 	out.HitchPkg = firstExisting(filepath.Join(p.Components, "HitchRecorder"))
 	out.Markers = firstExisting(filepath.Join(p.Components, "FrameLabMarkers", "FrameLab.Markers.reds"))
 	out.Markers25 = firstExisting(filepath.Join(p.Components, "FrameLabMarkers", "FrameLab.Markers.2.5.reds"))
+	if d := filepath.Join(p.Components, "FrameLabMarkers", "cet"); firstExisting(filepath.Join(d, "init.lua")) != "" {
+		out.MarkersLua = d
+	}
+	if d := filepath.Join(p.Components, "FrameLabOptions"); firstExisting(filepath.Join(d, "init.lua")) != "" {
+		out.OptionsLua = d
+	}
 	return out
 }

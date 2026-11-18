@@ -1,0 +1,680 @@
+{
+ "version": 1,
+ "made": "2026-11-17",
+ "recipes": [
+  {
+   "id": "radiohostsfix",
+   "mod": "Radio Hosts Fix",
+   "nexus": 16643,
+   "kind": "perf",
+   "what": "Looks up the player and the car only when its radio checks are due (every 0.8 s and 0.18 s), not every frame.",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/RadioHostsFix/init.lua",
+     "after": "4b8ca21c6d9ab4c04a8ef60c0fa1ad731dea3fb41cc86623d8071607f4ef19ac",
+     "before": "209df4c02086b7d4116de263a8b84fefd7100e2da41f874b2471b24c8b89e4bd",
+     "ops": [
+      {
+       "at": 29884,
+       "del": 0,
+       "del_sha": "",
+       "ins": "    -- [perf patch] (8 Nov 2026) the player and vehicle lookups were done every frame but are only\n    -- used when the world-radio or source poll is due (every 0.8 s / 0.18 s)\n    local worldDue = worldDistancePollElapsed >= WORLD_DISTANCE_POLL_INTERVAL\n    local sourceDue = sourcePollElapsed >= SOURCE_POLL_INTERVAL\n"
+      },
+      {
+       "at": 29907,
+       "del": 24,
+       "del_sha": "f429cca6544d641871e9ce332710d4ef77c4369d775d76275e594def00e47256",
+       "ins": "    if not blocked and (worldDue or sourceDue) then\n"
+      },
+      {
+       "at": 30158,
+       "del": 90,
+       "del_sha": "37d11eabed62247efa4f7cdc8ae6e18db13516c702974d1e1e79aebb3c676d31",
+       "ins": "    local mountedVehicle = (player and worldDue) and Game[\"GetMountedVehicle;GameObject\"](player) or nil\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "browserext",
+   "mod": "Browser Extension 0.9.7",
+   "nexus": 10038,
+   "kind": "perf",
+   "what": "Checks which key was pressed first, so only page up / page down go on to the home-page test (it ran for every key press).",
+   "files": [
+    {
+     "path": "r6/scripts/BrowserExtension/HomePagePagination.reds",
+     "after": "e573dc5a65ad15da2dd7b563763e280f2367d8e3964fc3417dc600537e96a2ea",
+     "before": "cb7e99d818b90ca97210eb0f3869c1bc17db1a9e84fce509c3534af0190f9a79",
+     "ops": [
+      {
+       "at": 531,
+       "del": 0,
+       "del_sha": "",
+       "ins": "\t\t// [perf patch] only the page up/down keys matter here, so check the key before the home-page test\r\n\t\tlet bePageKey: CName = ListenerAction.GetName(action);\r\n\t\tif NotEquals(bePageKey, n\"UI_MoveDown\") && NotEquals(bePageKey, n\"UI_MoveUp\") {\r\n\t\t\treturn false;\r\n\t\t};\r\n\r\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "nif",
+   "mod": "Native Interactions Framework 1.1.5",
+   "nexus": 21422,
+   "kind": "perf",
+   "what": "Scans for world interactions 25 times a second instead of every frame.",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/nativeInteractions/init.lua",
+     "after": "287636315228d0f2fb8a4ff96932e05f6025d72e391e9c0957846d1b3a3906be",
+     "before": "7228a7bde5ee8dc0336876932e1fef33614d2800835d82802d6ea3b6c60c562e",
+     "ops": [
+      {
+       "at": 4198,
+       "del": 27,
+       "del_sha": "795266ac1e8d3f21afe9cc61d0546c3d3b17085c288d07c10fb78904d2bc87ff",
+       "ins": "            -- [perf patch] world interaction scan at 25 Hz instead of every frame\n            self.worldElapsed = (self.worldElapsed or 1) + (dt or 0)\n            if self.worldElapsed >= 0.04 then\n                self.worldElapsed = 0\n                world.update()\n            end\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "8ug8ear",
+   "mod": "8ug8ear apartment (Romance Next Chapter 1.5 + ROMANCE 3.01)",
+   "nexus": 30900,
+   "kind": "perf",
+   "what": "Remembers the apartment system instead of looking it up on every key press.",
+   "files": [
+    {
+     "path": "r6/scripts/gt_8ug_apt/GetTenSO8ugApartment.reds",
+     "after": "50472cf120843de53e6e073f6f3643772c2ecb233d3ac8231da6f1aa58598d6d",
+     "before": "acf47f8259b81cc2d8f277f475592366e41aa9f0771b615ea422fb31593e1f35",
+     "ops": [
+      {
+       "at": 43469,
+       "del": 0,
+       "del_sha": "",
+       "ins": "  // [perf patch] cache the apartment system instead of looking it up on every input\n  private let m_aptCache: wref<Gt8ugAptSystem>;\n\n"
+      },
+      {
+       "at": 43566,
+       "del": 36,
+       "del_sha": "45c8913444d8e24ab56784e7824f02ef94313efb399dff4c7d7f231c09a616bd",
+       "ins": "    if !IsDefined(this.m_aptCache) {\n      this.m_aptCache = Gt8ugAptSystem.Get();\n    }\n    let apt = this.m_aptCache;\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "apttoys25",
+   "mod": "Apartment Toys 1.2.1",
+   "nexus": 26674,
+   "kind": "fix25",
+   "what": "Game 2.5 fix: two candles in the apartment are cooked meshes since 2.5, so ArchiveXL refused the whole edit. The two type names are corrected.",
+   "files": [
+    {
+     "path": "archive/pc/mod/ApartmentToysAVs.archive.xl",
+     "after": "60733b511f956c557d46ea05d4c65da0523ec684411ba302cb129067954c46c5",
+     "before": "00d1b1be4d2dd38011cc81dd69f8e838ff1dbb9cc394edcfd10df032d3868e3c",
+     "ops": [
+      {
+       "at": 1351,
+       "del": 37,
+       "del_sha": "2a3b89086f1843435292146bcd473a4deea28317c8db6e7ef1ce6e8d0a5d0974",
+       "ins": "          type: worldCookedStaticMeshNode\r\n"
+      },
+      {
+       "at": 1443,
+       "del": 35,
+       "del_sha": "9ffffb5678dfb1ee6ecf0eb354584235beb077c0f51f0b99630cf4b8a6ef1ad3",
+       "ins": "          type: worldCookedStaticMeshNode"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "quickslots",
+   "mod": "Custom Quickslots 5.7.1",
+   "nexus": 3096,
+   "kind": "perf",
+   "what": "Reads the keyboard / controller state once per input and only sends it to the CET side when it changes; one lookup instead of a loop over every gamepad action.",
+   "files": [
+    {
+     "path": "r6/scripts/custom_quickslots/player_puppet.reds",
+     "after": "94e323aeca9fc415f8e7bfd8c0f8eec4e14accf36db2b43fa5f114fa6a5b297d",
+     "before": "dc617ca99a86d5c0ce140305ef5ed9ad8eb10685ce7f0d0ef7c10c777ef6d54a",
+     "ops": [
+      {
+       "at": 994,
+       "del": 0,
+       "del_sha": "",
+       "ins": "  // [perf patch] remember what was last reported to the CET side\n  public let kbmReportedToCET: Bool;\n  public let kbmLastReported: Bool;\n  public let kbmReportCountdown: Int32;\n"
+      },
+      {
+       "at": 2095,
+       "del": 118,
+       "del_sha": "bd520c4fcf421a53b815689cfec19c9276c7175a0f6e93db02d6f4d65ea5256d",
+       "ins": "    // [perf patch] read the keyboard/controller state once, and only push it to the CET side when it\n    // changes (re-sent every 300 inputs as a safety net) instead of on every single input event\n    let kbmNow: Bool = this.player.PlayerLastUsedKBM();\n    this.kbmReportCountdown -= 1;\n    if !this.kbmReportedToCET || NotEquals(kbmNow, this.kbmLastReported) || this.kbmReportCountdown <= 0 {\n      CustomQuickslotsGlobalInputListener.SetLastUsedKBM(kbmNow, this.player.gracePeriodOver);\n      if this.player.gracePeriodOver {\n        this.kbmReportedToCET = true;\n        this.kbmLastReported = kbmNow;\n        this.kbmReportCountdown = 300;\n      }\n    }\n"
+      },
+      {
+       "at": 2240,
+       "del": 44,
+       "del_sha": "3f837467937fa1452d7359167fe32b1c2aa097196d5840ffe905b1f300ca1ae9",
+       "ins": "      if !kbmNow {\n"
+      },
+      {
+       "at": 2372,
+       "del": 43,
+       "del_sha": "b28003b59771fbfe2f0038c80ca423267e9389abedf250b91639a02bb7925fe2",
+       "ins": "      if kbmNow {\n"
+      },
+      {
+       "at": 2627,
+       "del": 167,
+       "del_sha": "6e83e76cf2c4ca9d1e6f40b21e8d90b4e98ab2b3b8a1cdf32ae9c5519585bdf4",
+       "ins": "    // [perf patch] one native lookup instead of an interpreted loop over every gamepad action name\n    gamepadQuickslotInput = ArrayContains(this.gamepadActions, actionName);\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "dedra",
+   "mod": "Dedra Wanted (Romance Voicemail 3.0)",
+   "nexus": 26377,
+   "kind": "perf",
+   "what": "Skips the player, time and position lookups on the frames between its 4-times-a-second checks; its dialog helper only works while its own choice hub is on screen.",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/dedra_wanted_mod/init.lua",
+     "after": "6f3272109333387b875d61afb7c1c202894307e41b916d065b8abdff368f32d2",
+     "before": "c164c5a490e75affb154b0038cbaef464eccf3e2379cc63d2a09ffa413ecd5b2",
+     "ops": [
+      {
+       "at": 18612,
+       "del": 0,
+       "del_sha": "",
+       "ins": "  mod.tick = mod.tick + delta\n  local doStep = false\n  if mod.tick >= (mod.tickRate or 0.25) then\n    doStep = true\n    mod.tick = 0\n  end\n\n  -- [perf patch] between the 4x-per-second checks there is nothing to do unless a voicemail/call cycle is running,\n  -- so skip the player / time / position engine calls on those frames\n  if not doStep and not mod.cycleLocked then return end\n\n"
+      },
+      {
+       "at": 18859,
+       "del": 140,
+       "del_sha": "f8e7b74323fc2f666d5891b46edb6bb877d906d271559f5c2eec81c101060248",
+       "ins": ""
+      }
+     ]
+    },
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/dedra_wanted_mod/modules/interactionUI.lua",
+     "after": "9dd5872726c528a80114301004e751d60c7b1f440c84cc61ae2329d61682f2f2",
+     "before": "952c3e7ca3a2ebc13380218df865af96a4e89808db60447b5acf0b2252d9fdf1",
+     "ops": [
+      {
+       "at": 11511,
+       "del": 0,
+       "del_sha": "",
+       "ins": "    -- [perf patch] nothing below does anything unless our hub is on screen\n    if not ui.hubShown then ui.input = false return end\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ncpdhotline",
+   "mod": "Immersive NCPD Hotline 3.1.11",
+   "nexus": 8557,
+   "kind": "perf",
+   "what": "Police backup, subscription and crime checks 10 times a second instead of every frame; the hub key name is converted once instead of on every input.",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/NPCD_Hotline/init.lua",
+     "after": "ef9d1d7e25fc5df05abb822fd88c005922529b97c1591abab114f5324d5d0753",
+     "before": "6dbbdd49c622cc8e0184f00f8824b660d193aa04f993d1e1e3fdb38529d93adc",
+     "ops": [
+      {
+       "at": 79758,
+       "del": 0,
+       "del_sha": "",
+       "ins": "-- [perf patch] police-backup / subscription / crime-timeout checks run 10x per second instead of every frame\r\n-- (kept as a mod-environment global so this huge file gains no extra local slots or upvalues)\r\nNPCD_perfSlowTick = 0.0\r\n\r\n"
+      },
+      {
+       "at": 79935,
+       "del": 0,
+       "del_sha": "",
+       "ins": "\tNPCD_perfSlowTick = NPCD_perfSlowTick + (delta or 0)\r\n\tif NPCD_perfSlowTick < 0.1 then return end\r\n\tNPCD_perfSlowTick = 0.0\r\n"
+      },
+      {
+       "at": 235034,
+       "del": 0,
+       "del_sha": "",
+       "ins": "\t-- [perf patch] build the action name once instead of converting the string on every input event\r\n\t-- (mod-environment global: no extra locals/upvalues in this already very large function)\r\n\tNPCD_perfOpenHubAction = nil\r\n"
+      },
+      {
+       "at": 235167,
+       "del": 58,
+       "del_sha": "bcd29376209bf389973b5cf45f979d7bb0000a6b08271ef51d4ed6fc2791ed15",
+       "ins": "\t\tif NPCD_perfOpenHubAction == nil then\r\n\t\t\tlocal ok, cname = pcall(n, openHubMenuActionName)\r\n\t\t\tNPCD_perfOpenHubAction = ok and cname or openHubMenuActionName\r\n\t\tend\r\n\t\tif action:IsAction(action, NPCD_perfOpenHubAction) then\r\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "ivde",
+   "mod": "Immersive V Dialogue Expanded 1.1.0",
+   "nexus": 24377,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/ImmersiveVDialogueExpanded/modules/interactionUI.lua",
+     "after": "6310d0b606022dcbc91556808ca9543e7cf8aa7690746d5d1669e33f71f2dc44",
+     "before": "67136717fb538fa6bb736d2295e86bd433fb0b5bc60a7ccd60824fb58af3d299",
+     "ops": [
+      {
+       "at": 14980,
+       "del": 0,
+       "del_sha": "",
+       "ins": "    -- [perf patch] nothing below does anything unless our hub is on screen\r\n    if not ui.hubShown then ui.input = false return end\r\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "aldecaldos",
+   "mod": "Improved Aldecaldos Camp",
+   "nexus": 13821,
+   "kind": "perf",
+   "what": "The camp's interactions and map pins are checked once a second while V is far from the camp (they ran every frame anywhere in the city); camera input only while V sits in a workspot; dialog data passes straight through when none of its hubs is on screen.",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/ImprovedAldecaldosCamp/init.lua",
+     "after": "bd806a02a0660361702fe6661effa77d9e82f9b242148ea93a45ee677ebdd2db",
+     "before": "d33bf093c8dd8fb807a0fea4e3e6ad736c1aef11c7b67354e4bb976836d09604",
+     "ops": [
+      {
+       "at": 3107,
+       "del": 28,
+       "del_sha": "9677d4e5c7e723a7442ce8324da45fe7953b0a4a9736d1d6387b988d6122953a",
+       "ins": "            world.update(delta) -- [perf patch] delta lets it run once a second when far from the camp\r\n"
+      }
+     ],
+     "also": [
+      "b7f87b585c5b45a8b8306370a042bf3502b7b5556bbdfbb945c74d29e14acbcb"
+     ]
+    },
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/ImprovedAldecaldosCamp/modules/utils/interactionUI.lua",
+     "after": "7c9a01de69546c72bcc79285f995cf708bf486a5b20b540f8fbe5397e01645b8",
+     "before": "6d91506539ab9ed3cc2311e4ff51ef5282f1959565cde1d91dbe8ae445852cb7",
+     "ops": [
+      {
+       "at": 6621,
+       "del": 0,
+       "del_sha": "",
+       "ins": "        -- [perf patch] (10 Nov 2026) no custom hub on screen: hand the game's data straight through\r\n        -- (before, every dialog/prompt update was converted to Lua and back for nothing)\r\n        if not ui.hubShown then wrapped(value) return end\r\n"
+      },
+      {
+       "at": 14691,
+       "del": 0,
+       "del_sha": "",
+       "ins": "    -- [perf patch] nothing below does anything unless our hub is on screen\r\n    if not ui.hubShown then ui.input = false return end\r\n"
+      }
+     ],
+     "also": [
+      "faf236a088d5ce29f2a93d167a0265675a351f0cb65538d7766f2ea43abe59a2"
+     ]
+    },
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/ImprovedAldecaldosCamp/modules/utils/worldInteraction.lua",
+     "after": "62dda63055057e7616fac0b348d387d3ddb18a62145beb91e6755ac8c6e0a95c",
+     "before": "65b77c08c2b042ef4e36989c2eaf5fe39209c3ba224b8567bd182160ae63816a",
+     "ops": [
+      {
+       "at": 634,
+       "del": 0,
+       "del_sha": "",
+       "ins": "    -- [perf patch] plain-number copy of the position for cheap distance checks in Lua\r\n    data.px, data.py, data.pz = position.x, position.y, position.z\r\n"
+      },
+      {
+       "at": 1235,
+       "del": 0,
+       "del_sha": "",
+       "ins": "        -- [perf patch] this runs for every map/HUD pin in the game: skip it while none of our pins exist\r\n        if (world.pinCount or 0) <= 0 then return end\r\n"
+      },
+      {
+       "at": 1362,
+       "del": 0,
+       "del_sha": "",
+       "ins": "        local mx, my, mz = pos.x, pos.y, pos.z\r\n"
+      },
+      {
+       "at": 1422,
+       "del": 67,
+       "del_sha": "e77c782abcafd22b78dc670df83dbb580b47e488b59ed7a8f7e70ebe3555a520",
+       "ins": "            local dx, dy, dz = mx - interaction.px, my - interaction.py, mz - interaction.pz\r\n            if dx * dx + dy * dy + dz * dz < 0.0025 then\r\n"
+      },
+      {
+       "at": 2022,
+       "del": 119,
+       "del_sha": "473d8fe034cb40d33342e9829409baf12e2e92d08be06815cd3dbdb585689c35",
+       "ins": "    -- [perf patch] distance in Lua numbers instead of a call into the game per interaction\r\n    if interaction.disabled then return false end\r\n    local dx, dy, dz = posPlayer.x - interaction.px, posPlayer.y - interaction.py, posPlayer.z - interaction.pz\r\n    local r = interaction.interactionRange\r\n    if not (dx * dx + dy * dy + dz * dz < r * r) then\r\n"
+      },
+      {
+       "at": 3234,
+       "del": 136,
+       "del_sha": "269b260a1ccb7d1febe512693655b0ecb2efb21610a873c3950af66bc36dd4fb",
+       "ins": "-- [perf patch] (8 Nov 2026) the camp's interactions were checked every frame anywhere in the city.\r\n-- Now: every frame within 150 m of the nearest one, once a second further away (prompts and pins\r\n-- still switch off on that pass). Distances use plain Lua numbers.\r\nlocal FAR2 = 150 * 150\r\nworld._far, world._wait = false, 0\r\n\r\nfunction world.update(dt)\r\n    if world._far then\r\n        world._wait = world._wait - (dt or 0.016)\r\n        if world._wait > 0 then return end\r\n        world._wait = 1.0\r\n    end\r\n    local player = GetPlayer()\r\n    if not player then return end\r\n    local posPlayer = player:GetWorldPosition()\r\n    local playerForward = player:GetWorldForward()\r\n"
+      },
+      {
+       "at": 3405,
+       "del": 0,
+       "del_sha": "",
+       "ins": "    local ppx, ppy, ppz = posPlayer.x, posPlayer.y, posPlayer.z\r\n    local near2 = math.huge\r\n"
+      },
+      {
+       "at": 3464,
+       "del": 0,
+       "del_sha": "",
+       "ins": "        local dx, dy, dz = ppx - interaction.px, ppy - interaction.py, ppz - interaction.pz\r\n        local d2 = dx * dx + dy * dy + dz * dz\r\n        if d2 < near2 then near2 = d2 end\r\n"
+      },
+      {
+       "at": 3773,
+       "del": 136,
+       "del_sha": "d04b60bd9fb8476328c81b315bc7082949c9007528780991518d9165d413f613",
+       "ins": "        if not interaction.disabled and interaction.icon and d2 < interaction.iconRange * interaction.iconRange then\r\n"
+      },
+      {
+       "at": 4152,
+       "del": 0,
+       "del_sha": "",
+       "ins": "    world._far = near2 > FAR2\r\n    if world._far and world._wait <= 0 then world._wait = 1.0 end\r\n"
+      },
+      {
+       "at": 4420,
+       "del": 0,
+       "del_sha": "",
+       "ins": "        world.pinCount = math.max(0, (world.pinCount or 0) - 1) -- [perf patch]\r\n"
+      },
+      {
+       "at": 4733,
+       "del": 0,
+       "del_sha": "",
+       "ins": "        world.pinCount = (world.pinCount or 0) + 1 -- [perf patch]\r\n"
+      },
+      {
+       "at": 4888,
+       "del": 0,
+       "del_sha": "",
+       "ins": "        world.interactions[id].px, world.interactions[id].py, world.interactions[id].pz = position.x, position.y, position.z -- [perf patch]\r\n"
+      },
+      {
+       "at": 5257,
+       "del": 0,
+       "del_sha": "",
+       "ins": "    world.pinCount, world._far, world._wait = 0, false, 0 -- [perf patch]\r\n"
+      },
+      {
+       "at": 5505,
+       "del": 0,
+       "del_sha": "",
+       "ins": "    world.pinCount = 0 -- [perf patch]\r\n"
+      }
+     ],
+     "also": [
+      "ba061be67e39276d4b4703df07ea939e6369415591c385a16e4f0674f10d7419"
+     ]
+    },
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/ImprovedAldecaldosCamp/modules/workspots/drinkWorkspot.lua",
+     "after": "dc1d9794109b9dadec6396b34d90fa296eeab69ce41319c6157f818957f65de7",
+     "before": "4dd884fbf779f666632a423f507a4dcfe9dee5f10d10d87c0931615ee5cda044",
+     "ops": [
+      {
+       "at": 3010,
+       "del": 0,
+       "del_sha": "",
+       "ins": "        -- [perf patch] camera input only matters while sitting in this workspot\r\n        if not self.inWorkspot then self.yaw = 0; self.pitch = 0; return end\r\n"
+      }
+     ]
+    },
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/ImprovedAldecaldosCamp/modules/workspots/showerWorkspot.lua",
+     "after": "87c3e73d33db4496ab2ccabeacec669547e78ba28176ef0fd16d82362c70634b",
+     "before": "45c30fed77f0f8723e03d93aca93f1afbd44acbde00a081753bd857f97be6b48",
+     "ops": [
+      {
+       "at": 4426,
+       "del": 0,
+       "del_sha": "",
+       "ins": "        -- [perf patch] camera input only matters while sitting in this workspot\r\n        if not self.inWorkspot then self.yaw = 0; self.pitch = 0; return end\r\n"
+      }
+     ]
+    },
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/ImprovedAldecaldosCamp/modules/workspots/sleepWorkspot.lua",
+     "after": "f95fcf1c7cc79b4b25acb27b653495fcca73d66ad1e9f146436e29dc9140070f",
+     "before": "835a11eb168eb4c71551ca5703f438353dd8861161989191f7d75646a69fefbe",
+     "ops": [
+      {
+       "at": 2775,
+       "del": 0,
+       "del_sha": "",
+       "ins": "        -- [perf patch] camera input only matters while sitting in this workspot\r\n        if not self.inWorkspot then self.yaw = 0; self.pitch = 0; return end\r\n"
+      }
+     ]
+    },
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/ImprovedAldecaldosCamp/modules/workspots/template/sitWorkspot.lua",
+     "after": "44baf2738e1aa44f15aebe57d52a103daa5773c207238835f999efed6fd8a705",
+     "before": "f6dafb3605fb75dc502ed251eddf03b51dae21c300fa3952a210e4ea909afda9",
+     "ops": [
+      {
+       "at": 2542,
+       "del": 0,
+       "del_sha": "",
+       "ins": "        -- [perf patch] camera input only matters while sitting in this workspot\r\n        if not self.inWorkspot then self.yaw = 0; self.pitch = 0; return end\r\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "glen25",
+   "mod": "More Interactions - The Glen 1-01",
+   "nexus": 21571,
+   "kind": "fix25",
+   "what": "Game 2.5 fix: the yacht bar stool is node 631 of 739 in 2.5 (was 629 of 737), so the edit points at it again.",
+   "files": [
+    {
+     "path": "archive/pc/mod/more_interactions_the_glen.xl",
+     "after": "e7bebcfce7b83bc4bd42c8223b639bcd916db6ca9fe602018518712bf762599c",
+     "before": "5f78312b4e906c42bc804497639ebe16c681c1fe97a756e4322b5f38f6761eb1",
+     "ops": [
+      {
+       "at": 926,
+       "del": 26,
+       "del_sha": "ac0d7e2f7e3836074956dac08ffec89b58590c1c11fbefbd2a5b7ed1814a7903",
+       "ins": "      expectedNodes: 739\r\n"
+      },
+      {
+       "at": 1580,
+       "del": 22,
+       "del_sha": "e06d5a4ec97405897ee3fb2fffa18225a9eef4787cfc8c5a6e8fc90233750577",
+       "ins": "          index: 631\r\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "panamgift",
+   "mod": "Panam gift mod 5.1",
+   "nexus": 21689,
+   "kind": "perf",
+   "what": "Its dialog helper only works while its own choice hub is on screen (it ran every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/panam_gift_mod/modules/interactionUI.lua",
+     "after": "8c94c1552b42878f474a16b8e44dd3f86851431845844fdb6ce101843d5bfc80",
+     "before": "f30719a335cde000967486c4d59a19e3e04669dd183cac33b5f4d506fe63b433",
+     "ops": [
+      {
+       "at": 14619,
+       "del": 0,
+       "del_sha": "",
+       "ins": "    -- [perf patch] nothing below does anything unless our hub is on screen\n    if not ui.hubShown then ui.input = false return end\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "radioext",
+   "mod": "RadioExt 2.92",
+   "nexus": 4591,
+   "kind": "perf",
+   "what": "The car / pocket radio watchdog runs 4 times a second instead of every frame (world radios still follow every frame).",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/radioExt/init.lua",
+     "after": "2c6700f9fc2b7ee1ec22dd2e1146152de6fec52ecc9d6e70a26f23fb72fb3cf8",
+     "before": "e78d5750b9ec14c5e98c78689fd32102ac9ef3c1d258c2c1a9f4995d0525be41",
+     "ops": [
+      {
+       "at": 3121,
+       "del": 40,
+       "del_sha": "e162e5ae14172ff0ea20320f6cfadbb17591912e51cdfafe1d857e065a8dc79a",
+       "ins": "            self.radioManager:update(delta) -- [perf patch] passes delta for the watchdog throttle\r\n"
+      }
+     ]
+    },
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/radioExt/modules/radioManager.lua",
+     "after": "65b81bcb0f5eb9c0d5f0e0449049c9464a0da40b55cb5b22f7a86722c3ef3df3",
+     "before": "a4555ad39881c757ff7782ae5052dd49ab666299b58f29b3b97a0cc66f630f4c",
+     "ops": [
+      {
+       "at": 6973,
+       "del": 88,
+       "del_sha": "fe269bb28ce4754f67a6616784e3b6dd2557bf45dc6b190b4a357f4dd1421499",
+       "ins": "function radioManager:update(delta)\r\n    -- [perf patch] the car/pocket radio watchdog only needs to run 4x a second, not every frame\r\n    self.vWatchElapsed = (self.vWatchElapsed or 1) + (delta or 0)\r\n    if self.vWatchElapsed >= 0.25 then\r\n        self.vWatchElapsed = 0\r\n        self.managerV:update()\r\n    end\r\n    self.managerP:update() -- 3D position of world radios stays per frame\r\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "lamplighter",
+   "mod": "The Lamp Lighter 1.8",
+   "nexus": 18255,
+   "kind": "perf",
+   "what": "Checks 4 times a second (it ran every frame with up to 8 calls into the game) and switches the lamps once per new game minute.",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/TheLampLighter-StreetlampTimeScale/init.lua",
+     "after": "30865360b9a989c39db615fc39d70a57e665674df956a5f6eed345d2141d2d76",
+     "before": "64ea84af9b7a3af13d7f266e9248448909ef9506ddfee2af415d445c705d08fe",
+     "ops": [
+      {
+       "at": 15749,
+       "del": 0,
+       "del_sha": "",
+       "ins": "-- [perf patch] poll 4x a second (was every frame with up to 8 engine calls) and run Update()\r\n-- once per new game minute (the original caught the exact :00 second by polling every frame)\r\nlocal lampPollElapsed = 0\r\nlocal lastLampMinute = nil\r\n"
+      },
+      {
+       "at": 15792,
+       "del": 188,
+       "del_sha": "dc1ee88bd1723d6bf4ffaec28186e95780a410d4753df076fe8fdd2a27a29004",
+       "ins": "    lampPollElapsed = lampPollElapsed + (dt or 0)\r\n    if lampPollElapsed < 0.25 then return end\r\n    lampPollElapsed = 0\r\n    local srh = Game.GetSystemRequestsHandler()\r\n    if srh:IsPreGame() or srh:IsGamePaused() then return end\r\n    local ts = Game.GetTimeSystem()\r\n    if not ts then return end\r\n    local gt = ts:GetGameTime()\r\n    if not gt or not gt.seconds then return end\r\n"
+      },
+      {
+       "at": 16028,
+       "del": 376,
+       "del_sha": "158b53dfbf9edfaefba794049b2bd64f78da49265fa2ef5909af499dae94ff67",
+       "ins": "        local minute = math.floor(gt.seconds / 60)\r\n        if lastLampMinute ~= minute then\r\n            if lastLampMinute ~= nil then Update() end\r\n            lastLampMinute = minute\r\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "weatherswitcher",
+   "mod": "Weather Switcher 1.7.6",
+   "nexus": 18027,
+   "kind": "perf",
+   "what": "The weather check runs 4 times a second instead of every frame, with one system lookup instead of three; cloud transitions still move every frame.",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/WeatherSwitcher/init.lua",
+     "after": "ad1b14b590e25caeb43ebbdd77e1774fda56dfb0c47ae04cb6de4d424befb536",
+     "before": "89a42f0dede898d0111bbf85b80738c7fd4c6e493a3ab9f9cbdc0e1dab4f3f12",
+     "ops": [
+      {
+       "at": 5187,
+       "del": 0,
+       "del_sha": "",
+       "ins": "-- [perf] 22 Oct 2026: throttle for the weather-state check (see onUpdate)\r\nlocal WS_CHECK_EVERY = 0.25\r\nlocal wsCheckTimer = 0\r\n\r\n"
+      },
+      {
+       "at": 5717,
+       "del": 0,
+       "del_sha": "",
+       "ins": "\t-- [perf] 22 Oct 2026: one system-handler lookup instead of three\r\n\tlocal srh = Game.GetSystemRequestsHandler()\r\n"
+      },
+      {
+       "at": 5782,
+       "del": 153,
+       "del_sha": "189abe04e352136a413f9c23e6966cb1f84447a5ceced54fe80b6f7076291c9a",
+       "ins": "\t   not srh or\r\n\t   srh:IsGamePaused() or\r\n\t   srh:IsPreGame() then\r\n"
+      },
+      {
+       "at": 6232,
+       "del": 19,
+       "del_sha": "fc85b5340d0c93ee76a604bb5e5537338c0d92da072ac3851efa878bb3ae52fa",
+       "ins": "\t-- [perf] 22 Oct 2026: the weather-state check runs 4x a second instead of every frame.\r\n\t-- Cloud transitions still advance every frame and the history timer still gets every frame's time.\r\n\twsCheckTimer = wsCheckTimer + delta\r\n\tif wsCheckTimer >= WS_CHECK_EVERY then\r\n\t\tlocal skipped = wsCheckTimer - delta\r\n\t\twsCheckTimer = 0\r\n\t\tif skipped > 0 then HT.AccumulateDelta(skipped) end\r\n\t\tWM.Update(delta)\r\n\telse\r\n\t\tCC.UpdateTransition(delta)\r\n\tend\r\n"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "untrackquest",
+   "mod": "Untrack Quest Ultimate 3.6.0",
+   "nexus": 6328,
+   "kind": "perf",
+   "what": "Its input and NPC-message watchers only get the events they use (filtered in a small REDscript file) instead of every key press and every NPC message.",
+   "files": [
+    {
+     "path": "bin/x64/plugins/cyber_engine_tweaks/mods/QuestTrackingToggle/init.lua",
+     "after": "e4592ec6e2e0206eac378ccc778e66b42ba78ba537b5a3e73aeea7646fa64930",
+     "before": "035f95e6e3839442094d4c3abfd9de741f144ebc57e6acb1e752261c04a8479e",
+     "ops": [
+      {
+       "at": 118069,
+       "del": 71,
+       "del_sha": "296a157fb34b8fd925000023e80267ba4a1e5faf7c1e41a72b2f6a0bb66ab04e",
+       "ins": "\tObserve('PlayerPuppet', 'QTT_OnTrackedAction', function(this, action, consumer) -- perf patch 2026-11-01: was OnAction, filtered in QuestTrackingToggle.Perf.reds\r\n"
+      },
+      {
+       "at": 127544,
+       "del": 78,
+       "del_sha": "21d7e16c1de188b7e986c4ecd1255f3666966c1e3dc0a4fb910a7fad6f21ad94",
+       "ins": "\tObserveAfter('ScriptedPuppet', 'QTT_OnUntrackRequest', function(this, evt); -- perf patch 2026-11-01: was OnCommunicationEvent, filtered in QuestTrackingToggle.Perf.reds\r\n"
+      }
+     ]
+    },
+    {
+     "path": "r6/scripts/QuestTrackingToggle_perf/QuestTrackingToggle.Perf.reds",
+     "after": "ebead9bf3e0cc9cbbca1b403f72768bb22269ede78a08181872a32497b05b457",
+     "create": "// Untrack Quest Ultimate (QuestTrackingToggle) - per-frame cost patch (patch 2026-11-01).\n// The CET mod observed PlayerPuppet.OnAction and ScriptedPuppet.OnCommunicationEvent. Those run for every\n// input action (mouse and stick axes, many per frame) and every NPC communication event, and every call\n// crossed into Lua even though the mod only acts on button actions, LeanFB, and its own untrack request.\n// These wrappers pass only those calls on, to two empty methods that the patched init.lua observes\n// instead. Same order as before (input before the game handles it, the request after). Needs the patched\n// init.lua; remove both files together.\n\n@wrapMethod(PlayerPuppet)\nprotected cb func OnAction(action: ListenerAction, consumer: ListenerActionConsumer) -> Bool {\n  if ListenerAction.IsButton(action) || ListenerAction.IsAction(action, n\"LeanFB\") {\n    this.QTT_OnTrackedAction(action, consumer);\n  }\n  return wrappedMethod(action, consumer);\n}\n\n@addMethod(PlayerPuppet)\npublic func QTT_OnTrackedAction(action: ListenerAction, consumer: ListenerActionConsumer) -> Void {}\n\n@wrapMethod(ScriptedPuppet)\nprotected cb func OnCommunicationEvent(evt: ref<CommunicationEvent>) -> Bool {\n  let result: Bool = wrappedMethod(evt);\n  if Equals(evt.name, n\"mod_custom_untrack_quest_request_event\") && Equals(evt.sender, this.GetEntityID()) {\n    this.QTT_OnUntrackRequest(evt);\n  }\n  return result;\n}\n\n@addMethod(ScriptedPuppet)\npublic func QTT_OnUntrackRequest(evt: ref<CommunicationEvent>) -> Void {}\n"
+    }
+   ]
+  }
+ ]
+}

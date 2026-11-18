@@ -7,35 +7,42 @@
 <link rel="icon" href="icon.svg">
 <link rel="stylesheet" href="uPlot.min.css">
 <link rel="stylesheet" href="style.css">
+<script>try { var t = localStorage.getItem("fl_theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 </head>
 <body>
 <header class="top">
-  <div class="logo"><span>NIGHT CITY</span><b>FRAME LAB</b></div>
+  <div class="logo" title="Night City Frame Lab"><span>NIGHT CITY</span><svg role="img" aria-label="FRAME LAB" viewBox="0 0 12802 1380"><path class="lw" d="M292 1360Q208 1360 208 1276V88Q208 4 292 4H1028Q1067 4 1089.5 26.5Q1112 49 1112 88Q1112 172 1028 172H376V592H778Q862 592 862 676Q862 760 778 760H376V1276Q376 1360 292 1360Z M2432 1364Q2399 1385 2369.0 1377.0Q2339 1369 2318 1336L2008 820H1728V1276Q1728 1360 1644 1360Q1560 1360 1560 1276V88Q1560 4 1644 4H2112Q2295 4 2392.5 101.5Q2490 199 2490 382V442Q2490 601 2416.0 695.5Q2342 790 2202 813L2464 1250Q2502 1320 2432 1364ZM1728 652H2112Q2226 652 2274.0 604.0Q2322 556 2322 442V382Q2322 269 2274.0 220.5Q2226 172 2112 172H1728Z M4666 1360Q4582 1360 4582 1276V88Q4582 4 4666 4Q4721 4 4758 58L5230 768L5194 774L5670 58Q5704 4 5772 4Q5840 4 5840 88V1276Q5840 1360 5756 1360Q5672 1360 5672 1276V256L5724 274L5304 892Q5267 946 5202 946Q5157 946 5120 892L4700 274L4750 288V1276Q4750 1360 4666 1360Z M6580 1360Q6496 1360 6496 1276V88Q6496 4 6580 4H7298Q7382 4 7382 88Q7382 172 7298 172H6664V592H7062Q7146 592 7146 676Q7146 760 7062 760H6664V1192H7298Q7382 1192 7382 1276Q7382 1360 7298 1360Z M8894 1360Q8810 1360 8810 1276V88Q8810 4 8894 4Q8978 4 8978 88V1192H9532Q9616 1192 9616 1276Q9616 1360 9532 1360Z M11748 1360Q11664 1360 11664 1276V88Q11664 4 11748 4H12270Q12429 4 12514.5 88.0Q12600 172 12600 328V382Q12600 517 12515 591Q12674 680 12674 916V984Q12674 1168 12576.5 1264.0Q12479 1360 12296 1360ZM11832 1192H12296Q12409 1192 12457.5 1143.5Q12506 1095 12506 984V916Q12506 805 12459.0 757.5Q12412 710 12296 710H11832ZM11832 542H12306Q12379 542 12405.5 497.0Q12432 452 12432 382V328Q12432 241 12396.0 206.5Q12360 172 12270 172H11832Z"/><path class="la" d="M2986 1352Q2906 1321 2938 1242L3394 70Q3420 4 3488 4H3492Q3554 7 3580 70L4044 1242Q4076 1321 3998 1352Q3919 1383 3888 1306L3482 270L3094 1306Q3064 1381 2986 1352Z M10068 1352Q9988 1321 10020 1242L10476 70Q10502 4 10570 4H10574Q10636 7 10662 70L11126 1242Q11158 1321 11080 1352Q11001 1383 10970 1306L10564 270L10176 1306Q10146 1381 10068 1352Z"/></svg></div>
   <nav id="tabs">
-    <button data-tab="capture" class="on">Capture</button>
+    <button data-tab="start" class="on">Start here</button>
+    <button data-tab="capture">Record</button>
     <button data-tab="sessions">Sessions</button>
     <button data-tab="compare">Compare</button>
-    <button data-tab="mods">Mods</button>
-    <button data-tab="conflicts">Conflicts</button>
-    <button data-tab="checks">Checks</button>
-    <button data-tab="vram">VRAM</button>
-    <button data-tab="experiments">Experiments</button>
+    <button data-tab="optimise">Mods</button>
+    <button data-tab="checks">PC</button>
     <button data-tab="settings">Settings</button>
   </nav>
   <div id="topstatus" class="topstatus"></div>
+  <button id="themebtn" class="themebtn" type="button"></button>
 </header>
 <div id="banner" class="banner hidden"></div>
 <main>
-  <section id="tab-capture" class="tab on"></section>
+  <div id="subtabs" class="subtabs hidden"></div>
+  <section id="tab-start" class="tab on"></section>
+  <section id="tab-capture" class="tab"></section>
   <section id="tab-sessions" class="tab"></section>
   <section id="tab-compare" class="tab"></section>
   <section id="tab-mods" class="tab"></section>
+  <section id="tab-optimise" class="tab"></section>
+  <section id="tab-gameopts" class="tab"></section>
   <section id="tab-conflicts" class="tab"></section>
   <section id="tab-checks" class="tab"></section>
   <section id="tab-vram" class="tab"></section>
   <section id="tab-experiments" class="tab"></section>
+  <section id="tab-workbench" class="tab"></section>
+  <section id="tab-precheck" class="tab"></section>
   <section id="tab-settings" class="tab"></section>
 </main>
+<footer id="statusbar" class="statusbar"></footer>
 <div id="toast" class="toast hidden"></div>
 <div id="modal" class="modal hidden"><div class="modal-box"><div id="modal-text"></div><div class="modal-buttons"><button id="modal-no" class="btn2">Cancel</button><button id="modal-yes" class="btn">OK</button></div></div></div>
 <script src="uPlot.iife.min.js"></script>

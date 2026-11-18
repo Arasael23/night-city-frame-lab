@@ -64,8 +64,27 @@ func indentOf(s string) int {
 type tweakSet struct{ owner, value, file string }
 
 func checkTweaks(r *Report, o Options) {
-	root := filepath.Join(o.Game, "r6", "tweaks")
+	sets, n := collectTweaks(o.Game)
+	r.TweaksN += n
+	tweakClashes(r, o, sets)
+}
+
+// InstalledTweaks: every simple TweakDB value the build's tweak files set (key -> who sets it to what).
+func InstalledTweaks(o Options) map[string][]TweakVal {
+	sets, _ := collectTweaks(o.Game)
+	out := map[string][]TweakVal{}
+	for k, ss := range sets {
+		for _, s := range ss {
+			out[k] = append(out[k], TweakVal{Mod: label(o, "tweak:", s.owner), Value: s.value, File: s.file})
+		}
+	}
+	return out
+}
+
+func collectTweaks(game string) (map[string][]tweakSet, int) {
+	root := filepath.Join(game, "r6", "tweaks")
 	sets := map[string][]tweakSet{}
+	files := 0
 	gamefs.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
@@ -79,7 +98,7 @@ func checkTweaks(r *Report, o Options) {
 			return nil
 		}
 		defer f.Close()
-		r.TweaksN++
+		files++
 		rel, _ := filepath.Rel(root, p)
 		owner := tweakOwner(rel)
 		sc := bufio.NewScanner(f)
@@ -149,6 +168,10 @@ func checkTweaks(r *Report, o Options) {
 		}
 		return nil
 	})
+	return sets, files
+}
+
+func tweakClashes(r *Report, o Options, sets map[string][]tweakSet) {
 	for k, ss := range sets {
 		byOwner := map[string]tweakSet{}
 		vals := map[string]bool{}

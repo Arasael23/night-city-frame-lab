@@ -118,3 +118,21 @@ func writeSnapshot(dir, game, gpuName string) {
 		fmt.Fprintln(os.Stderr, "snapshot:", err)
 	}
 }
+
+// snapshotSettingsEnd adds the game's settings as they are after the run to the session's snapshot.
+// The snapshot at the start is from before the game opened; settings changed in game during the run
+// only show here. The Optimise schedule compares test runs on these.
+func snapshotSettingsEnd(dir string) {
+	sn := analysis.ReadSnapshot(dir)
+	if sn == nil {
+		return
+	}
+	b, err := os.ReadFile(platform.UserSettingsPath())
+	if err != nil {
+		return
+	}
+	if set := flattenSettings(b); len(set) > 0 {
+		sn.SettingsEnd = set
+		analysis.WriteSnapshot(dir, sn)
+	}
+}

@@ -39,6 +39,9 @@ type ScriptLayer struct {
 // FileHitchOwners is HitchRecorder's owner list for its script records ("<index>\t<owner>").
 const FileHitchOwners = "hitch.owners.txt"
 
+// FileHitchFn is HitchRecorder's time per script function, in 5-second blocks (1.3+).
+const FileHitchFn = "hitch.fn.txt"
+
 func readOwners(dir string) (red, cet map[uint64]string) {
 	red = map[uint64]string{0: "game scripts", 1: "scripts without a source file"}
 	cet = map[uint64]string{0: "CET itself"}
@@ -111,12 +114,13 @@ func (d *data) ourLayer(owners map[uint64]string, kAll, kMain uint8, domain stri
 	if len(total) == 0 {
 		return nil
 	}
-	// time the scripts were timed: the F11 parts (session) or capture windows, else first..last bucket
+	// time the scripts were timed: the F11 parts (session) or capture windows, else first..last bucket.
+	// A test recording times them for the whole run, whatever was marked.
 	var segs [][2]float64
 	var open int64 = -1
 	for i := range d.hr.Recs {
 		r := &d.hr.Recs[i]
-		if r.Kind != hrec.KMark {
+		if r.Kind != hrec.KMark || (d.meta != nil && d.meta.Test) {
 			continue
 		}
 		q := d.hr.Header.Qpc(r.TUs)

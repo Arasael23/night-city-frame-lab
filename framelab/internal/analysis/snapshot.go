@@ -18,11 +18,12 @@ type ModFile struct {
 }
 
 type Snapshot struct {
-	Game     string            `json:"game_version,omitempty"`
-	Driver   string            `json:"driver,omitempty"`
-	Windows  string            `json:"windows,omitempty"`
-	Settings map[string]string `json:"settings,omitempty"` // UserSettings.json, "group/name" -> value
-	Mods     []ModFile         `json:"mods,omitempty"`
+	Game        string            `json:"game_version,omitempty"`
+	Driver      string            `json:"driver,omitempty"`
+	Windows     string            `json:"windows,omitempty"`
+	Settings    map[string]string `json:"settings,omitempty"`     // UserSettings.json, "group/name" -> value
+	SettingsEnd map[string]string `json:"settings_end,omitempty"` // the same after the run (2.5): what it was really played with
+	Mods        []ModFile         `json:"mods,omitempty"`
 }
 
 func WriteSnapshot(dir string, s *Snapshot) error {

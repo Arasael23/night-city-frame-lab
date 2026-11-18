@@ -1,36 +1,29 @@
-Night City Frame Lab 2.31.0
-==========================
+Night City Frame Lab 2.5
+========================
 
-A stutter and performance recorder for Cyberpunk 2077 with mods. One window records the game with
-every layer on the same clock, then explains each slow frame:
+A stutter and performance recorder for Cyberpunk 2077 with mods. It records the game with every
+layer on the same clock, explains each slow frame, checks your mods and your PC, and tells you
+what to try first.
 
-  - shader and ray tracing pipeline builds
-  - world streaming, file loading and entity spawns
-  - REDscript mods and CET Lua mods (time per mod, in the parts you mark with F11)
-  - VRAM full, or game memory spilled into system RAM
-  - heavy streaming or slow disk reads, system RAM running out, the page file
-  - a Windows driver holding the CPU (interrupts / DPCs)
-  - the game resetting its screen (full screen re-applied, screen buffers rebuilt)
-  - a GPU-heavy frame (path tracing load), the GPU at its power or heat limit
+Frame Lab 2.5 reads and advises. It never changes Windows, your game settings or your mod files:
+every fix comes as steps you do yourself. The one exception is the easy one on the VRAM page,
+moving programs like browsers and Discord to the integrated graphics, with an exact Undo.
+Frame Lab 2.5E (Experimental, a separate download) can also make fixes for you.
 
-Nothing of it is in the game while you play normally. Frame Lab puts its recorders in for one
+Nothing of Frame Lab is in the game while you play normally. It puts its recorders in for one
 session and takes them out again when you quit the game.
 
 
 Requirements
-  - Windows 10 or 11, 64-bit. Microsoft Edge WebView2 Runtime (already part of Windows 11).
+  - Windows 10 or 11, 64-bit. Microsoft Edge WebView2 Runtime (part of Windows 11).
+  - Cyberpunk 2077 game version 2.5.
   - RED4ext, for the engine recorder (HitchRecorder). Without it you still get frame times,
     GPU and PC readings and the Windows events.
-  - Cyber Engine Tweaks (optional): loading-screen markers and CET Lua time per mod need it.
-  - Game version 2.5 (2.31 still works). Frame Lab's own version numbers aren't game versions:
-    Frame Lab 2.31 is simply the update after 2.0, the number is a nod to the game's own. Tested
-    with an NVIDIA card. On another game version the engine recorder leaves out the parts it can't
-    find and says so in its log.
-  - AMD and Intel cards (new in 1.1, beta): GPU readings come from AMD's driver (ADLX, part of
-    AMD Software: Adrenalin Edition) on Radeon cards, and from Windows on any card. The Capture
-    tab shows which readings your card gives. Why a card lowered its clocks (power limit, heat)
-    is NVIDIA only. If the GPU readings look wrong on your card, run components\GPU check.exe
-    (changes nothing) and post the GPU check.txt it writes next to itself in the Bugs tab.
+  - Cyber Engine Tweaks (recommended): loading screens, menus and where V is come from a small
+    CET mod of Frame Lab's, and CET Lua time per mod needs CET.
+  - NVIDIA cards fully; AMD and Intel cards are a beta (GPU readings from AMD's driver on Radeon
+    cards, and from Windows on any card). If the GPU readings look wrong on your card, run
+    components\GPU check.exe (changes nothing) and post the GPU check.txt it writes.
 
 
 Install
@@ -38,205 +31,135 @@ Install
   Windows asks for administrator rights: PresentMon (frame and GPU timing) and Windows' event
   tracing need them, and so does writing into a game folder under Program Files.
 
-  On the first start Frame Lab looks for your game: Steam, GOG and Epic installs, the running
-  game, the usual folders on every drive and copies next to them ("Cyberpunk 2077 - Modded" and
-  so on). Each folder is one "build". Settings > Find game installs looks again; Add a build takes
-  any other folder (the one with bin\x64 in it).
+  On the first start Frame Lab looks for your game: Steam, GOG and Epic installs, the running game,
+  the usual folders on every drive and copies next to them. Each folder is one "build", picked at
+  the top of the window. Settings > Find game installs looks again; Add a build takes any other
+  folder (the one with bin\x64 in it).
 
-  Mod Organizer 2: MO2 keeps the mods in its own folder and only shows them to programs it starts,
-  so give each build MO2 runs its MO2 folder in Settings (the one with ModOrganizer.ini; Frame Lab
-  offers the instances it finds for that game). Frame Lab then reads the build the way the game
-  sees it: the active profile's mods in MO2's order, and the overwrite folder, where the game's
-  logs and HitchRecorder's recordings end up. Start the game through MO2 as usual.
+  Mod Organizer 2: give each build MO2 runs its MO2 folder in Settings (the one with
+  ModOrganizer.ini). Frame Lab then reads the build the way the game sees it. Start the game
+  through MO2 as usual.
+
+  Updating from an older Frame Lab: copy Sessions, data and FrameLab.settings.json over from the
+  old folder.
+
+
+Start here
+  One thing at a time, the easy ones first: what the newest recording of the build says to do,
+  in the order to do it (crashes and hardware first, then the quick ones like graphics memory and
+  closing programs, then Windows settings, then mods). Mark a step done and record again: the next
+  report shows whether it helped.
 
 
 Record a session
-  1. Capture tab: pick the build, name the session, press Start session (game closed).
+  1. Record: pick the build, press Start session (game closed).
   2. Start the game and play. Everything records by itself until you quit.
-  3. Press F11 where it stutters to start a mark, F11 again ends it. Script time per mod
-     (REDscript and CET) is measured only inside the marked parts, so this is how you find out
-     which mod costs what. Press F10 whenever you feel a stutter: the report shows what happened
-     in the 2 seconds before each press (new in 2.0). Both keys can be changed in Settings >
-     In-game keys.
-  4. Quit the game.
-  5. Frame Lab collects everything, takes the recorders out again and opens the report.
-  Loading screens and the main menu are shaded on the timeline and left out of the numbers.
+  3. F11 starts and ends a mark around a part that stutters: script time per mod (REDscript and
+     CET) is measured inside the marked parts. F10 whenever you feel a stutter: the report shows
+     what happened in the 2 seconds before. Both keys can be changed in Settings.
+  4. Quit the game. Frame Lab collects everything, takes its parts out of the game and opens the
+     report.
 
-  The report: frame times with every slow frame coloured by its cause, VRAM and the rest of the
-  graphics card, GPU clock and temperature, disk and CPU, drivers and system RAM, frames shown
-  per second, a list of the spikes with what overlapped each one, script cost per mod, engine work,
-  shader builds, and "What to try": advice worked out from that session's own numbers.
-  Compare puts two sessions side by side. Export HTML report saves one as a single file.
+  The report: frame times with every slow frame coloured by its cause, graphics memory and the
+  rest of the graphics card, CPU, disk, drivers and system RAM, the L-shape (frame time at every
+  percentile), the list of spikes with what overlapped each one, script cost per mod, engine work,
+  shader builds, load times, and what to try. Loading screens, menus and the main menu are shaded
+  and left out of the numbers. A spike that came with opening or closing a menu says so.
 
-  New in 2.31 (Frame Lab's version, for game version 2.5):
-  - Every chart has a button in its corner that opens it larger. There the mouse wheel zooms in
-    and out where the mouse is, dragging moves along the session, Ctrl + wheel zooms the height,
-    and double-click or Reset goes back to the whole session (keys: + - arrows 0 Esc).
-  - Settings > In-game keys: pick other keys for "mark a part" (F11) and "I felt a stutter" (F10).
-  - The L-shape: frame time at each percentile, from the median to the slowest 1 in 10,000
-    frames, with a percentile table. Older sessions get it when opened (if their recording is
-    still there).
-  - Compare takes up to six sessions: their L-shapes on one chart, fps bars, every number with
-    its change against the first (baseline) session, and what changed from each session to the
-    next, for following a bisect.
-  - Mod Organizer 2 builds (see Install).
-  - Game 2.5: the loading-screen marker script uses the game's own loading-screen hook there, so
-    redscript no longer warns about it. The engine recorder (HitchRecorder 1.1.1) records file
-    loading times on 2.5 too. REDscript time per mod isn't split on 2.5 yet (its log says so).
-  - Stutters where the game read a lot of data are called heavy streaming. The drive is only
-    blamed when Windows timed a read as slow (15 ms or more), and the Defender exclusion is only
-    suggested then, or when Defender itself was reading from disk at those moments.
-  - Files the game loaded again in three or more stutters are listed, with whether VRAM was
-    nearly full at those moments (the game dropping them to make room) or not.
-  - A session cancelled before the game started is removed again, and a session that can't be
-    analysed shows Open folder and Delete.
-  - After a crash, the RAM numbers stop at the game's last frame (the crash report and the driver
-    reset used memory after it, which made it look like RAM ran out). When RAM itself had plenty
-    free and only the memory limit (RAM + page file) was close, the advice now says that.
+  Causes it tells apart: shader and ray tracing builds, world streaming and file loading, entity
+  spawns, REDscript and CET Lua mods, graphics memory full or spilled into system RAM, heavy
+  streaming or slow disk reads, system RAM running out, a Windows driver holding the CPU, the
+  game resetting its screen, a GPU-heavy frame, the GPU at its power or heat limit, a game menu.
+  A session that ends in a crash says so first: a graphics card hang, the Advanced Crash Reporter
+  report (when installed) and Windows' own log entries.
 
-  2.0.1:
-  - Overlays and recorders that hook into the game (the NVIDIA overlay and the like) no longer
-    show the game's own graphics memory as theirs in "Everything else on the game's card".
-  - When the game kept part of its graphics memory in system RAM the whole session, the VRAM
-    item says so, instead of tying it to the freezes only.
-  - The Capture tab and this README put F11 and F10 up front.
+  Sessions keeps every recording; Compare puts up to six side by side, with what changed between
+  them and whether a difference is bigger than the normal run-to-run noise. Every chart opens
+  larger with zoom and pan. Export HTML report saves one as a single file.
 
-  New in 2.0:
-  - Checks tab: read-only checks of the PC and each build (display and frame limiters, injected
-    DLLs, DLSS files, PCIe link, RAM speed, game drive, MSI mode, mod frameworks and debug logging
-    left on, old tweaks, memory integrity), with a fix and an Undo where one is safe.
-  - A session that ends in a crash says so first: whether the graphics card hung, what the
-    Advanced Crash Reporter report says (when that mod is installed) and Windows' own log entries
-    (display driver reset, hardware errors, unexpected restart).
-  - Stutter % (frames over 2.5x the average), how spread out the frame times are, input lag
-    (PresentMon), CPU temperature, load times (game start to the menu, script loading, save
-    loading, every loading screen).
-  - CPU temperature: read from HWiNFO while it runs with "Shared Memory Support" on, or on AMD
-    Ryzen through PawnIO, the signed driver LibreHardwareMonitor and Fan Control use. Frame Lab
-    never installs a driver: Checks > CPU temperature > Get PawnIO opens pawnio.eu, and you run
-    its installer yourself.
-  - Compare: what changed between the two sessions (game, driver and Windows versions, mods added,
-    removed or updated, game settings) and whether a difference is bigger than the normal
-    run-to-run noise.
-  - VRAM tab: what one mip level less on each mod's big textures would save (exact), and big
-    meshes without levels of detail.
+
+Mods
+  - Check your mods (no game needed): reads the build's mod files and finds missing
+    requirements, mods installed twice or in the wrong place, plugins that failed to load, mods
+    with a newer version on Nexus (Settings > Mod updates, off until you switch it on), and what
+    Frame Lab knows from about 6,200 downloaded mods.
+  - Conflicts and errors: two mods that replace the same game file (which one wins, and whether
+    the game used it), game functions two mods replace, TweakXL values set differently (with what
+    other mods set them to), and the errors and warnings in the logs of RED4ext, every plugin,
+    REDscript and every CET mod. Compatibility patches, framework placeholder files and identical
+    copies are listed apart as harmless.
+  - Cost while playing: every mod with a recorded cost in the open session: script time, files
+    the game loaded from it, and how many spikes it was part of.
+  - Before you install: search a Nexus mod and see, before installing it, which of your mods
+    carry the same game files and which would win, values it sets differently, game functions it
+    replaces that your build replaces too, requirements you don't have, code that runs every
+    frame, and whether it changes your save.
+
+
+VRAM page (no game needed)
+  The game only gets a set share of the graphics card's memory (Frame Lab shows it as the budget
+  in every recording). When that runs out, the game moves textures in and out in the middle of a
+  frame, and that is a stutter. Even a few hundred MB helps. Easiest first:
+    1. Programs on the graphics card: move the ones that don't need it (browsers, Discord,
+       launchers) to the integrated graphics, one by one or all suggested ones at once. It is the
+       same per-program setting as Windows Settings > System > Display > Graphics, applies the
+       next time that program starts, and Undo puts back exactly what was there.
+    2. Lighter texture mods: what each mod sends to the graphics card, what it adds on top of the
+       game's own files, upscaled textures, copies another mod overrides, and the lighter (2K)
+       versions of a mod that are on Nexus.
+    3. The game's texture quality one step lower.
+
+
+PC checks (no game needed)
+  The PC and each build: display and frame limiters, injected DLLs, DLSS files, PCIe link, RAM
+  speed, the game's drive, memory integrity, mod frameworks and debug logging left on, old tweaks.
+  Each one says what it found and the steps to fix it yourself.
+  CPU temperature: from HWiNFO while it runs with "Shared Memory Support" on, or on AMD Ryzen
+  through PawnIO (pawnio.eu, a signed driver you install yourself; Frame Lab never installs one).
 
 
 What it puts into the game folder, for one session only
   - red4ext\plugins\HitchRecorder (engine recorder, also times REDscript and CET mods). It
     switches itself off after one game run, so even after a crash the next start is clean.
-  - r6\scripts\NightCityFrameLab\FrameLab.Markers.reds (writes "loading screen on/off" and
-    "in game" lines to CET's gamelog.log; needs CET).
-  Both come out again when you quit the game, or with Cancel and remove. If the game or PC
-  crashes mid-session, Frame Lab offers to take them out the next time it starts.
-  Nothing else in the game folder is changed. CET itself is not touched.
+  - bin\x64\plugins\cyber_engine_tweaks\mods\NightCityFrameLab (a small CET mod: loading screens,
+    menus, where V is every 5 seconds).
+  Both come out again when you quit the game. If the game or PC crashes mid-session, Frame Lab
+  offers to take them out the next time it starts. Nothing else in the game folder is changed.
 
 
 What runs outside the game during a session
-  - PresentMon (bundled): real frame times, GPU time per frame, frame generation.
-  - The graphics driver: NVIDIA's NVML, or AMD's ADLX on Radeon cards: GPU clock, power,
-    temperature, VRAM (NVIDIA also says why it lowered its clocks).
-  - Windows' GPU readings, for any card: GPU usage and VRAM (Task Manager's numbers), and
-    temperature and clock where the driver reports them.
-  - Windows performance counters: game CPU, busiest core, disk reads, free RAM, graphics memory
-    of every program.
-  - Windows event tracing (kernel): how long each driver held the CPU, memory read back from the
-    page file, disk use per program. Settings > Windows events switches it off.
-
-
-Script time per mod, how it is counted
-  REDscript: every script function the game runs is timed and charged to the mod whose .reds
-  file it came from. Time is counted once: a mod's wrapper gets its own part, the game code it
-  calls counts as "game scripts".
-  CET: every call CET makes into a mod's Lua (onUpdate, onDraw, Observe, Override, hotkeys) is
-  timed and charged to that mod, including the game script code it calls. Lua run from CET's
-  console or by CET itself shows as "CET itself".
-  Settings > Script time per mod switches both off.
-
-
-Mods tab
-  Every mod with a recorded cost in the open session: script time (REDscript and CET), files
-  the game loaded from it, and in how many spikes it took part. Sortable and filterable.
-
-
-Conflicts tab (no game needed)
-  Pick a build, press Check build (a few seconds). It reads the build's files and lists:
-  - Archives: two mods that replace the same game file. The archive that loads first is used (ASCII
-    order of the file name in archive\pc\mod, or modlist.txt if you have one; REDmod folders after),
-    the other one's copy is ignored. Shows which files, and how many of them the game actually loaded
-    in your last session of that build. Compatibility patches and merges (by name), framework
-    placeholder files meant to be replaced, and byte-identical copies are listed apart as harmless.
-    To make a mod win, rename its .archive so it sorts earlier (a leading # or 0), or remove the other.
-  - REDscript: a game function that two mods replace (only one replacement runs).
-  - TweakXL: the same game value set to different things by two mods (simple "key: value" lines).
-  - Logs: errors and warnings in the last log of RED4ext and each plugin (ArchiveXL, TweakXL,
-    Codeware, ...), REDscript and every CET mod. A crash that a plugin logged shows up here too.
-
-
-VRAM tab (no game needed), two parts:
-  - Mods: Scan build adds up the textures and meshes each mod sends to the graphics card and
-    compares every mod file with the game file it replaces (new in 1.2), so you see what a mod
-    really adds on top of the game. A mod that swaps game meshes for ones of the same size holds
-    a lot of data but adds almost nothing. Also shows upscaled textures (3.5 times the game's file
-    or more), copies another mod overrides (never used), files identical to the game's own,
-    textures without mip levels (always loaded at full size), archives that are cut off, what
-    changed since the last scan, and with a session of that build how much the game really
-    loaded. Click a mod for its biggest and most upscaled files and its Nexus page.
-  - Programs on the graphics card: every program that holds graphics memory right now, on which
-    card, and the graphics setting Windows has for it. Programs that don't need the main card
-    (browsers, Discord, launchers) can be moved to the processor's integrated graphics, one by one
-    or with Move all suggested. It is the same per-program setting as Windows Settings > System >
-    Display > Graphics > Power saving and applies the next time that program starts. Undo puts
-    back exactly what was there. The game, recorders (OBS, NVIDIA's apps) and Windows' own parts
-    are never moved. Needs integrated graphics switched on; the tab says how if it isn't.
-
-
-Experiments tab
-  Windows settings people change to make games run better, each one switched on by itself and
-  undone exactly (what was there before is kept in data\experiments.json). Every session notes
-  which were on, so two sessions in Compare show whether a setting helped on your PC. The risky
-  ones are marked and need a second click. Leave them off unless a session points at them.
-  New in 2.0: Game Mode off, quiet session (Search, Update, SysMain paused), 3D V-Cache cores,
-  0.5 ms timer, CPU idle off, PCIe link power off, MSI mode, memory compression off, crowd
-  density, SMT, hybrid P-cores, NVIDIA power mode and DLSS latest model, DLSS indicator, a fixed
-  page file on the fastest drive, GPU interrupt core, newer DLSS files with an exact backup, and
-  Undo everything.
-  New in 1.2: multiplane overlay (MPO) off, Game Bar background recording off, keep the game on
-  the performance cores (Intel CPUs with two kinds of cores, beta), and two that are shown only:
-  hardware-accelerated GPU scheduling, and the NVIDIA driver profile for the game (frame cap,
-  V-sync, low latency, power mode and more), read from the driver and never changed.
+  - PresentMon (bundled, Intel): frame times, GPU time per frame, frame generation.
+  - The graphics driver (NVIDIA NVML, AMD ADLX) and Windows' own GPU readings.
+  - Windows performance counters and Windows event tracing (drivers holding the CPU, memory read
+    back from the page file, disk use per program). Settings > Windows events switches it off.
 
 
 Folders
-  Sessions\      one folder per session (raw data, markers, analysis.json, exported HTML report)
-  components\    HitchRecorder, FrameLabMarkers, PresentMon, GPU check, the PawnIO module, licences
-  data\          the file-name list, scan results, experiments and graphics settings changed, framelab.log
-  FrameLab.settings.json   your settings (created when you save in the Settings tab)
-
-  File names: Frame Lab can show the game's file names instead of numbers. It builds that list
-  once from WolvenKit if WolvenKit is on the PC (Settings > WolvenKit folder).
-  Mod library (optional, Settings): a folder with your downloaded mod zips. Frame Lab then shows
-  which download each file in the game came from.
+  Sessions\      one folder per session (raw data, markers, analysis, exported HTML report)
+  components\    HitchRecorder, the markers mod, PresentMon, the mod data, GPU check, PawnIO
+                 module, licences
+  data\          scan results, settings changes, framelab.log
+  FrameLab.settings.json   your settings
 
 
 Uninstall
-  Turn off any Experiments you switched on and Undo any program you moved on the VRAM tab, then
-  delete the folder. Nothing is left in the game folder after a session.
+  Undo any program you moved on the VRAM page, then delete the folder. Nothing is left in the game
+  folder after a session.
 
 
 If something goes wrong
-  data\framelab.log has every step. HitchRecorder's own log is copied into each session (hitch.log).
-  Wrong or missing GPU readings: run components\GPU check.exe and post GPU check.txt in the Bugs tab.
+  data\framelab.log has every step. HitchRecorder's own log is copied into each session
+  (hitch.log). Post both in the Bugs tab on Nexus.
 
 
 Credits
   PresentMon by Intel (MIT). uPlot by Leon Sorokin (MIT). go-webview2 by John Chadwick (MIT).
-  Inter font by The Inter Project Authors, IBM Plex Mono font by IBM (both SIL OFL 1.1).
+  Saira, JetBrains Mono and Jura fonts (SIL OFL 1.1).
   golang.org/x/sys (BSD-3). HitchRecorder uses MinHook by Tsuda Kageyu (BSD-2).
   PawnIO module AMDFamily17 by namazso and contributors (LGPL-2.1, unchanged signed build).
-  Mapping script functions to their .reds files at load is an idea from jekky's redscript-dap (MIT);
-  the CET part reads LuaJIT's data layout (LuaJIT and Cyber Engine Tweaks are MIT). Game function
-  hashes come from ArchiveXL and RED4ext.SDK. Licences in components\licences and
+  Mapping script functions to their .reds files at load is an idea from jekky's redscript-dap
+  (MIT); the CET part reads LuaJIT's data layout (LuaJIT and Cyber Engine Tweaks are MIT). Game
+  function hashes come from ArchiveXL and RED4ext.SDK. Licences in components\licences and
   components\THIRD_PARTY.txt.
 
 

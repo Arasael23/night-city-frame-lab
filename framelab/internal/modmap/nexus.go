@@ -18,6 +18,24 @@ var (
 	reNexusWord = regexp.MustCompile(`(?:^|\s)(\d{3,6})\s+v?\d`)
 )
 
+var (
+	reVerDl   = regexp.MustCompile(`^.+?-\d{2,6}-((?:[0-9a-zA-Z]+-)*?)\d{9,10}(?:\.[A-Za-z0-9]{1,4})?$`)
+	reVerWord = regexp.MustCompile(`(?:^|\s)\d{3,6}\s+v?(\d[0-9A-Za-z.]*)`)
+)
+
+// NexusVersion: the version in a download's file name ("Name-14408-2-0-0-1759122139.zip" -> "2.0.0",
+// "Codeware 7780 1.21.4.zip" -> "1.21.4"), or "".
+func NexusVersion(name string) string {
+	b := filepath.Base(strings.ReplaceAll(name, `\`, "/"))
+	if m := reVerDl.FindStringSubmatch(b); m != nil {
+		return strings.ReplaceAll(strings.Trim(m[1], "-"), "-", ".")
+	}
+	if m := reVerWord.FindStringSubmatch(strings.TrimSuffix(b, filepath.Ext(b))); m != nil {
+		return strings.TrimRight(m[1], ".")
+	}
+	return ""
+}
+
 // NexusID: the mod ID in a download's file name, or "".
 func NexusID(name string) string {
 	b := filepath.Base(strings.ReplaceAll(name, `\`, "/"))

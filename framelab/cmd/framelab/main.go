@@ -34,7 +34,7 @@ func main() {
 		AutoFocus: true,
 		DataPath:  data,
 		WindowOptions: webview2.WindowOptions{
-			Title:  "Night City Frame Lab",
+			Title:  "Night City Frame Lab " + app.Edition(),
 			Width:  1480,
 			Height: 940,
 			IconId: 1,

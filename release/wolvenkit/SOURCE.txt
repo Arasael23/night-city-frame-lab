@@ -1,0 +1,23 @@
+WolvenKit console 9.1.0
+=======================
+
+The files in this folder are the official release "WolvenKit.Console-9.1.0.zip" of the WolvenKit
+project, unpacked and unchanged:
+
+  https://github.com/WolvenKit/WolvenKit/releases/tag/9.1.0
+  SHA-256 of the zip: 7caf49cdf0f478b484b1a5a27e5aef261b879fabea7e72e33ca60eff3b834f4f
+
+Only two files were added: LICENSE.txt and this SOURCE.txt.
+
+WolvenKit is free software under the GNU General Public License, version 3 (LICENSE.txt in this
+folder). The complete source code of this release:
+
+  https://github.com/WolvenKit/WolvenKit/tree/9.1.0
+  https://github.com/WolvenKit/WolvenKit/archive/refs/tags/9.1.0.zip
+
+Night City Frame Lab is a separate program. It reads WolvenKit's list of the game's file names out of
+WolvenKit.Common.dll, and it starts WolvenKit.CLI.exe as a program of its own when mod files have to
+be unpacked or packed. Nothing of WolvenKit is built into Frame Lab.
+
+WolvenKit.CLI.exe needs Microsoft's .NET 10 runtime ("Run console apps"), from
+https://dotnet.microsoft.com/download/dotnet/10.0 . Reading the file names needs nothing.

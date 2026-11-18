@@ -51,21 +51,36 @@ type CaptureStatus struct {
 	Focus     bool            `json:"focus"`   // F11 part marked right now
 	FocusS    float64         `json:"focus_s"` // seconds marked with F11 so far
 	Layers    map[string]bool `json:"layers"`
+	Routes    []LiveRoute     `json:"routes,omitempty"`    // a test recording: how far each route is, read while the game runs
+	Trial     string          `json:"trial,omitempty"`     // the game option on trial in this recording ("Streaming / MaxNodesPerFrame = 200")
+	TrialOff  string          `json:"trial_off,omitempty"` // why the trial doesn't hold in this recording ("" while it does)
+}
+
+// LiveRoute: one test route during a test recording.
+type LiveRoute struct {
+	Ask     string  `json:"ask"` // "A walk, 3 min, in Little China or Kabuki"
+	NeedS   float64 `json:"need_s"`
+	Seconds float64 `json:"seconds"`
+	Done    bool    `json:"done"`
 }
 
 // armed.json: what Frame Lab installed, so it can always be put back (also after a crash).
 type armedFile struct {
-	Session string    `json:"session"`
-	Game    string    `json:"game"`
-	Build   string    `json:"build"`
-	Scripts bool      `json:"scripts"`         // REDscript + CET time per mod switched on in HitchRecorder
-	CET     bool      `json:"cet"`             // CET is in the build
-	Hitch   bool      `json:"hitch"`           // HitchRecorder put in for this session
-	Markers bool      `json:"markers"`         // FrameLab.Markers.reds put in for this session
-	Quiet   []string  `json:"quiet,omitempty"` // services the quiet session stopped (started again at the end)
-	Time    time.Time `json:"time"`
-	FeltKey int       `json:"felt_key,omitempty"` // "I felt a stutter" key of this session (2.5; 0 = F10)
-	MarkKey int       `json:"mark_key,omitempty"` // "mark a part" key of this session (2.5; 0 = F11)
+	Session string              `json:"session"`
+	Game    string              `json:"game"`
+	Build   string              `json:"build"`
+	Scripts bool                `json:"scripts"`               // REDscript + CET time per mod switched on in HitchRecorder
+	CET     bool                `json:"cet"`                   // CET is in the build
+	Hitch   bool                `json:"hitch"`                 // HitchRecorder put in for this session
+	Markers bool                `json:"markers"`               // the game markers were put in for this session
+	Marker  string              `json:"marker_kind,omitempty"` // how: "lua" (Frame Lab's CET mod, 2.5) or "reds" (session script)
+	Test    bool                `json:"test,omitempty"`        // a test recording for the Optimise schedule (script time for the whole run)
+	Routes  []analysis.RouteDef `json:"routes,omitempty"`      // the routes it is meant to cover
+	Opts    SessionOpts         `json:"options,omitempty"`     // the game options read in it, and the one on trial
+	Quiet   []string            `json:"quiet,omitempty"`       // services the quiet session stopped (started again at the end)
+	Time    time.Time           `json:"time"`
+	FeltKey int                 `json:"felt_key,omitempty"` // "I felt a stutter" key of this session (2.5; 0 = F10)
+	MarkKey int                 `json:"mark_key,omitempty"` // "mark a part" key of this session (2.5; 0 = F11)
 }
 
 // keys of an armed session (older armed files: F10 / F11)
@@ -81,6 +96,9 @@ func (a *armedFile) keys() (felt, mark int) {
 }
 
 type Controller struct {
+	// RoutesFor: the test routes recordings of a game folder are read with (set by the server; nil = the default ones)
+	RoutesFor func(game string) []analysis.RouteDef
+
 	mu       sync.Mutex
 	paths    Paths
 	settings *Settings
@@ -189,7 +207,7 @@ var unsafeChars = regexp.MustCompile(`[<>:"/\\|?*\x00-\x1f]`)
 func sessionFolderName(title string) string {
 	t := strings.TrimSpace(unsafeChars.ReplaceAllString(title, " "))
 	if t == "" {
-		t = "Capture"
+		t = "Session"
 	}
 	if len(t) > 60 {
 		t = t[:60]
@@ -208,7 +226,10 @@ func gameRunningFor(game string) (platform.GameProc, bool) {
 }
 
 // Arm prepares a capture: puts HitchRecorder (session settings) and the markers into the build, then waits for the game.
-func (c *Controller) Arm(title string, buildIdx int) error {
+// routes: the test routes the Optimise schedule still needs from this build. With any, the session is
+// a test recording: script time is measured for the whole run, so every route is measured the same way.
+// opts: the game options the markers mod reads in this recording, and the one on trial (Optimise > Game options).
+func (c *Controller) Arm(title string, buildIdx int, routes []analysis.RouteDef, opts SessionOpts) error {
 	cfg := c.settings.Get()
 	if buildIdx < 0 || buildIdx >= len(cfg.Builds) {
 		return errors.New("unknown game build")
@@ -241,7 +262,7 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 	feltKey, markKey := cfg.Keys()
 	fk, mk := KeyName(feltKey), KeyName(markKey)
 	meta := &analysis.Meta{ID: filepath.Base(dir), Title: title, Build: b.Name, Game: b.Path, Created: time.Now(),
-		QpcFreq: platform.QPCFreq(), SpikeMs: cfg.SpikeMs, FeltKey: fk, MarkKey: mk}
+		QpcFreq: platform.QPCFreq(), SpikeMs: cfg.SpikeMs, FeltKey: fk, MarkKey: mk, Test: len(routes) > 0}
 	gi := platform.GPU()
 	meta.GPU, meta.GpuVendor, meta.GpuSource, meta.GpuReads = gi.Name, gi.Vendor, gi.Source, gi.Reads
 	analysis.WriteMeta(dir, meta)
@@ -258,10 +279,13 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 		}()
 		comp := FindComponents(c.paths, cfg)
 		a := &armedFile{Session: dir, Game: b.Path, Build: b.Name, Time: time.Now(), Scripts: cfg.UseScripts, CET: HasCET(b.Path),
-			FeltKey: feltKey, MarkKey: markKey}
-		// HitchRecorder + loading-screen markers go in for this one session only
-		hitch, markers, err := InstallSessionParts(comp, b.Path, cfg.UseScripts, markKey, feltKey)
-		a.Hitch, a.Markers = hitch, markers
+			FeltKey: feltKey, MarkKey: markKey, Test: len(routes) > 0, Routes: routes, Opts: opts}
+		// HitchRecorder + the game markers go in for this one session only
+		hitch, markers, err := InstallSessionParts(comp, b.Path, cfg.UseScripts, markKey, feltKey, routes, opts)
+		a.Hitch, a.Markers, a.Marker = hitch, markers != MarkersNone, markers
+		if markers != MarkersLua {
+			a.Opts = SessionOpts{} // only Frame Lab's CET mod reads and sets options
+		}
 		switch {
 		case err != nil:
 			c.logf("err", "Putting HitchRecorder in failed: %v", err)
@@ -270,10 +294,21 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 		default:
 			c.logf("ok", "HitchRecorder %s put into %s for this session.", HitchStatus(b.Path).Version, b.Name)
 		}
-		if markers {
+		switch {
+		case markers == MarkersLua:
+			c.logf("ok", "Game markers put in (a small CET mod: loading screens, and where V is every 5 seconds).")
+		case markers == MarkersReds:
 			c.logf("ok", "Loading-screen markers put in (they need CET; written to its gamelog.log).")
-		} else if err == nil {
-			c.logf("warn", "Loading-screen markers missing from components\\FrameLabMarkers: loading screens will count as play.")
+		case err == nil && !a.CET:
+			c.logf("warn", "No Cyber Engine Tweaks in %s: no game markers, so loading screens count as play and no test route can be read.", b.Name)
+		case err == nil:
+			c.logf("warn", "Game markers missing from components\\FrameLabMarkers: loading screens will count as play.")
+		}
+		switch {
+		case len(a.Opts.Set) > 0:
+			c.logf("ok", "Game option on trial in this recording: %s. It is set in the running game only and checked every 5 seconds; nothing is written to the game's files.", a.Opts.TrialText())
+		case len(opts.Set) > 0:
+			c.logf("warn", "The game option on trial (%s) can't be set in this recording: that needs Frame Lab's markers mod (Cyber Engine Tweaks, game 2.5 or later). The recording won't count for the trial.", opts.TrialText())
 		}
 		// which Experiments settings are on for this session (and the standby clear, if switched on)
 		if exp := experimentsOn(c.paths.Data, b.Path); len(exp) > 0 {
@@ -283,14 +318,14 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 			}
 			c.logf("info", "Experiments on for this session: %s.", strings.Join(exp, ", "))
 		}
-		if standbyAuto(c.paths.Data) {
+		if Experimental && standbyAuto(c.paths.Data) {
 			if err := platform.PurgeStandby(); err != nil {
 				c.logf("warn", "Clearing standby memory failed: %v", err)
 			} else {
 				c.logf("ok", "Standby memory cleared (Experiments).")
 			}
 		}
-		if quietAuto(c.paths.Data) {
+		if Experimental && quietAuto(c.paths.Data) {
 			a.Quiet = platform.QuietStart()
 			if len(a.Quiet) > 0 {
 				c.logf("ok", "Quiet session: %s stopped until the session ends (Experiments).", strings.Join(a.Quiet, ", "))
@@ -306,6 +341,10 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 		case !hitch:
 		case !cfg.UseScripts:
 			c.logf("info", "Script time per mod is switched off in Settings.")
+		case a.Test && a.CET:
+			c.logf("ok", "Test recording: REDscript and CET time per mod is measured for the whole run.")
+		case a.Test:
+			c.logf("ok", "Test recording: REDscript time per mod is measured for the whole run (no CET in %s, so no CET layer).", b.Name)
 		case a.CET:
 			c.logf("ok", "REDscript and CET time per mod: measured by HitchRecorder in the parts you mark with %s.", mk)
 		default:
@@ -318,7 +357,27 @@ func (c *Controller) Arm(title string, buildIdx int) error {
 		c.st.State = StWaiting
 		c.st.Layers["redscript"], c.st.Layers["cet"] = a.Hitch && a.Scripts, a.Hitch && a.Scripts && a.CET
 		c.st.Layers["hitch"] = a.Hitch
-		c.step("info", fmt.Sprintf("Ready. Start the game and play: everything records by itself until you quit. Press %s at a spot that stutters to mark it (script time per mod is measured only in the marked parts), %s again to end the mark. Press %s whenever you feel a stutter. Quit the game when done.", mk, mk, fk))
+		c.st.Trial = a.Opts.TrialText()
+		if a.Test {
+			var asks []string
+			pinned := false
+			for _, d := range routes {
+				asks = append(asks, analysis.RouteAsk(d))
+				pinned = pinned || len(d.Pinned()) > 0
+				c.st.Routes = append(c.st.Routes, LiveRoute{Ask: analysis.RouteAsk(d), NeedS: d.Seconds})
+			}
+			tip := " " + analysis.RouteTip
+			if pinned {
+				tip = ""
+			}
+			line := " This list ticks along while you play."
+			if a.Marker == MarkersLua {
+				line = " A line at the top of the screen shows how far each one is, and this list ticks along."
+			}
+			c.step("info", fmt.Sprintf("Ready: test recording for Optimise. Start the game and record, in any order: %s.%s%s Press %s whenever you feel a stutter. Quit the game when done.", strings.Join(asks, "; "), line, tip, fk))
+		} else {
+			c.step("info", fmt.Sprintf("Ready. Start the game and play: everything records by itself until you quit. Press %s at a spot that stutters to mark it (script time per mod is measured only in the marked parts), %s again to end the mark. Press %s whenever you feel a stutter. Quit the game when done.", mk, mk, fk))
+		}
 		c.cancel = make(chan struct{})
 		cancel := c.cancel
 		c.busy = false // set-up done: Cancel works while waiting for the game (1.0 stayed busy here)
@@ -349,6 +408,9 @@ func (c *Controller) watch(cancel chan struct{}) {
 		case <-tick.C:
 		}
 		n++
+		if running && n%20 == 0 {
+			c.liveRoutes(a) // every 5 seconds: how far the test routes are
+		}
 		if running && n%4 != 0 {
 			c.onGameTick()
 			continue
@@ -498,6 +560,33 @@ func (c *Controller) onGameTick() {
 	}
 }
 
+// liveRoutes reads the markers mod's log of a running test recording (a few KB, one file) and works
+// out how far each route is, the same way the analysis will once the game is closed.
+func (c *Controller) liveRoutes(a *armedFile) {
+	if !a.Test || a.Marker != MarkersLua || len(a.Routes) == 0 {
+		return
+	}
+	marks, err := analysis.ParseLuaMarks(gamefs.Real(filepath.Join(markerLuaDir(a.Game), markerLuaLog)), a.Time.Add(-10*time.Second))
+	if err != nil {
+		return
+	}
+	var out []LiveRoute
+	for i, st := range analysis.RouteProgress(a.Routes, marks) {
+		out = append(out, LiveRoute{Ask: analysis.RouteAsk(a.Routes[i]), NeedS: st.NeedS, Seconds: st.Seconds, Done: st.Done})
+	}
+	c.mu.Lock()
+	c.st.Routes = out
+	if rep := analysis.ParseOptions(marks); rep != nil && len(a.Opts.Set) > 0 {
+		c.st.TrialOff = ""
+		for _, t := range rep.Trials {
+			if t.Off != "" {
+				c.st.TrialOff = t.Off
+			}
+		}
+	}
+	c.mu.Unlock()
+}
+
 func (c *Controller) onGameExit(a *armedFile) {
 	c.mu.Lock()
 	if c.st.State == StRecording {
@@ -558,27 +647,50 @@ func (c *Controller) finish(a *armedFile, hitchBin string) {
 		if err := copyFile(hitchBin, filepath.Join(a.Session, analysis.FileHitch)); err == nil {
 			copyFile(strings.TrimSuffix(hitchBin, ".bin")+".log", filepath.Join(a.Session, analysis.FileHitchLog))
 			copyFile(strings.TrimSuffix(hitchBin, ".bin")+".owners.txt", filepath.Join(a.Session, analysis.FileHitchOwners))
+			copyFile(strings.TrimSuffix(hitchBin, ".bin")+".fn.txt", filepath.Join(a.Session, analysis.FileHitchFn)) // HitchRecorder 1.3+: time per script function
 			c.logf("ok", "Engine recording copied (%s).", filepath.Base(hitchBin))
 		} else {
 			c.logf("warn", "Could not copy the engine recording: %v", err)
 		}
 	}
-	// loading-screen markers from CET's log
+	// the game's markers: Frame Lab's CET mod writes its own log (2.5), the older script goes through CET's log
 	if a.Markers {
-		cetLog := filepath.Join(a.Game, "bin", "x64", "plugins", "cyber_engine_tweaks", "gamelog.log")
-		if marks, err := analysis.ParseCETLog(gamefs.Real(cetLog), a.Time.Add(-10*time.Second)); err != nil {
-			c.logf("warn", "No loading-screen markers (CET's gamelog.log: %v).", err)
+		var marks []analysis.GameMark
+		var err error
+		from := a.Time.Add(-10 * time.Second)
+		if a.Marker == MarkersLua {
+			marks, err = analysis.ParseLuaMarks(gamefs.Real(filepath.Join(markerLuaDir(a.Game), markerLuaLog)), from)
 		} else {
+			marks, err = analysis.ParseCETLog(gamefs.Real(filepath.Join(a.Game, "bin", "x64", "plugins", "cyber_engine_tweaks", "gamelog.log")), from)
+		}
+		switch {
+		case err != nil && a.Marker == MarkersLua:
+			c.logf("warn", "No game markers: Frame Lab's CET mod wrote nothing (%v). Check that Cyber Engine Tweaks loads its mods in this build.", err)
+		case err != nil:
+			c.logf("warn", "No loading-screen markers (CET's gamelog.log: %v).", err)
+		default:
 			analysis.WriteMarks(a.Session, marks)
-			n := 0
+			loads, places := 0, 0
 			for _, m := range marks {
 				if m.Text == "loading screen on" {
-					n++
+					loads++
+				}
+				if _, ok := analysis.ParsePlace(m); ok {
+					places++
 				}
 			}
-			c.logf("ok", "Loading-screen markers read (%d loading screen(s)).", n)
+			switch {
+			case len(marks) == 0 && a.Marker == MarkersReds:
+				c.logf("warn", "No game markers reached CET's gamelog.log (it loses its last lines when the game doesn't close cleanly).")
+			case a.Marker == MarkersLua:
+				c.logf("ok", "Game markers read (%d loading screen(s), %d position lines).", loads, places)
+			default:
+				c.logf("ok", "Loading-screen markers read (%d loading screen(s)).", loads)
+			}
 		}
 	}
+	// the game's settings as they are now: the ones this run was played with (they are changed in game)
+	snapshotSettingsEnd(a.Session)
 	// screen resets (the game re-applying full screen / rebuilding its screen buffers) from ReShade's and CET's logs
 	if ev, found := analysis.ReadDisplayLogs(a.Game, a.Time.Add(-10*time.Second)); found {
 		analysis.WriteDisplay(a.Session, ev)
@@ -599,9 +711,46 @@ func (c *Controller) finish(a *armedFile, hitchBin string) {
 	}
 	c.logf("info", "Analysing ...")
 	id := filepath.Base(a.Session)
-	if _, err := c.Analyse(id); err != nil {
+	if res, err := c.Analyse(id); err != nil {
 		c.logf("err", "Analysis: %v", err)
 	} else {
+		if a.Test && res.Routes != nil {
+			c.logf("info", "%s", routesLine(res.Routes))
+			// the final count, with the frames: what the list on the Capture tab ends on
+			var live []LiveRoute
+			for _, d := range a.Routes {
+				for _, x := range res.Routes.Routes {
+					if x.ID == d.ID {
+						live = append(live, LiveRoute{Ask: analysis.RouteAsk(d), NeedS: x.NeedS, Seconds: x.Seconds, Done: x.Done})
+					}
+				}
+			}
+			c.mu.Lock()
+			c.st.Routes = live
+			c.mu.Unlock()
+		}
+		if o := res.Options; o != nil {
+			if o.Asked > 0 {
+				c.logf("ok", "Game options read: this game has %d of the %d options on Frame Lab's list (Optimise > Game options).", len(o.Values), o.Asked)
+			}
+			off := ""
+			for _, t := range o.Trials {
+				if t.Off != "" {
+					off = t.Off
+					c.logf("warn", "The option on trial (%s / %s) didn't hold in this recording: %s. The recording doesn't count for the trial.", t.Cat, t.Item, t.Off)
+				} else {
+					c.logf("ok", "The option on trial held for the whole recording: %s / %s = %s (the game's own value: %s).", t.Cat, t.Item, analysis.OptionText(t.Want), analysis.OptionText(t.Was))
+				}
+			}
+			c.mu.Lock()
+			c.st.TrialOff = off
+			c.mu.Unlock()
+		} else if len(a.Opts.Set) > 0 {
+			c.logf("warn", "The option on trial (%s) left no trace in the markers, so this recording doesn't count for the trial.", a.Opts.TrialText())
+			c.mu.Lock()
+			c.st.TrialOff = "the markers mod wrote nothing about it"
+			c.mu.Unlock()
+		}
 		c.logf("ok", "Done. Open the report.")
 	}
 	c.mu.Lock()
@@ -827,10 +976,21 @@ func (c *Controller) CurrentAnalysis(id string) ([]byte, error) {
 	if rerr == nil {
 		var v struct {
 			Version int                   `json:"version"`
+			Edition string                `json:"edition"`
 			Layers  []analysis.LayerState `json:"layers"`
 		}
 		json.Unmarshal(b, &v)
 		if v.Version >= analysis.ResultVersion || !recordingThere(dir, v.Layers) {
+			if v.Edition != analysis.EditionName() {
+				// analysed by the other edition: the same numbers, this edition's advice (not written back)
+				r := &analysis.Result{}
+				if json.Unmarshal(b, r) == nil && r.Meta != nil {
+					analysis.Readvise(r)
+					if nb, err := json.Marshal(r); err == nil {
+						return nb, nil
+					}
+				}
+			}
 			return b, nil
 		}
 	}
@@ -877,11 +1037,53 @@ func (c *Controller) Analyse(id string) (*analysis.Result, error) {
 		env.Mods = modmap.ScanBuild(meta.Game)
 	}
 	env.Library = libraryFor(c.paths, cfg, game)
+	env.Prev = c.prevResult(meta)
+	if c.RoutesFor != nil {
+		env.Routes = c.RoutesFor(game)
+	}
 	if meta != nil && cfg.SpikeMs > 0 && meta.SpikeMs != cfg.SpikeMs {
 		meta.SpikeMs = cfg.SpikeMs
 		analysis.WriteMeta(dir, meta)
 	}
 	return analysis.Run(dir, env)
+}
+
+// prevResult: the analysis of the finished session recorded before this one in the same build (nil when
+// there is none). Its advice is worked out again from its saved numbers, so a report made by an older
+// Frame Lab still says what it would have told the player to do.
+func (c *Controller) prevResult(meta *analysis.Meta) *analysis.Result {
+	if meta == nil || meta.Game == "" {
+		return nil
+	}
+	var best *analysis.Meta
+	bestDir := ""
+	for _, si := range c.Sessions() {
+		dir, err := c.SessionDir(si.ID)
+		if err != nil {
+			continue
+		}
+		m, err := analysis.ReadMeta(dir)
+		if err != nil || !m.Finished || m.ID == meta.ID || !m.Created.Before(meta.Created) ||
+			!strings.EqualFold(filepath.Clean(m.Game), filepath.Clean(meta.Game)) {
+			continue
+		}
+		if best == nil || m.Created.After(best.Created) {
+			best, bestDir = m, dir
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	b, err := os.ReadFile(filepath.Join(bestDir, analysis.FileAnalysis))
+	if err != nil {
+		return nil
+	}
+	r := &analysis.Result{}
+	if json.Unmarshal(b, r) != nil || r.Meta == nil {
+		return nil
+	}
+	r.Advice = analysis.Advise(r)
+	return r
 }
 
 // ---------------------------------------------------------------- file helpers
@@ -1001,4 +1203,31 @@ func writeSysEvents(session string) {
 	if b, err := json.Marshal(ev); err == nil {
 		os.WriteFile(filepath.Join(session, analysis.FileEvents), b, 0o644)
 	}
+}
+
+// routesLine: what a test recording covered of the Optimise routes, for the Capture log.
+func routesLine(r *analysis.RouteReport) string {
+	var done, part []string
+	for _, x := range r.Routes {
+		switch {
+		case x.Done:
+			done = append(done, x.Name)
+		case x.Seconds > 0:
+			part = append(part, fmt.Sprintf("%s (%s)", x.Name, x.Missing))
+		}
+	}
+	switch {
+	case len(done) == 0 && len(part) == 0 && r.Note != "":
+		return "Test routes: none read. " + r.Note
+	case len(done) == 0 && len(part) == 0:
+		return "Test routes: this recording covers none of them (Optimise lists where to go)."
+	}
+	out := "Test routes covered: " + strings.Join(done, ", ")
+	if len(done) == 0 {
+		out = "Test routes covered: none yet"
+	}
+	if len(part) > 0 {
+		out += ". Started but not complete: " + strings.Join(part, ", ")
+	}
+	return out + ". Optimise shows what is left."
 }

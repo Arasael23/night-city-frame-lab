@@ -412,6 +412,28 @@ func Scan(o Options) *Report {
 }
 
 // textures that are always drawn at one size don't need mip levels: UI, icons, fonts, colour LUTs
+// ArchiveGPU: the GPU data of one archive (the sum Scan uses for a mod: every file's buffers) and the
+// path hashes of its files. Reads the file table only.
+func ArchiveGPU(path string) (mb float64, hashes []uint64, err error) {
+	es, segs, err := modmap.ArchiveIndex(path)
+	if err != nil {
+		return 0, nil, err
+	}
+	if err := checkArchive(path, segs); err != nil {
+		return 0, nil, err
+	}
+	for _, e := range es {
+		hashes = append(hashes, e.Hash)
+		if e.SegEnd <= e.SegStart+1 || int(e.SegEnd) > len(segs) {
+			continue
+		}
+		for i := e.SegStart + 1; i < e.SegEnd; i++ {
+			mb += float64(segs[i].Size)
+		}
+	}
+	return mb / (1 << 20), hashes, nil
+}
+
 func mipsNotNeeded(name string) bool {
 	n := strings.ToLower(filepath.ToSlash(name))
 	for _, w := range []string{"/ui/", "/gui/", "/hud/", "icon", "atlas", "font", "lut", "/fullscreen/", "/inkwidget", "loading_screen", "/menu"} {

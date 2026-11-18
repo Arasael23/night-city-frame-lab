@@ -30,6 +30,7 @@ type Meta struct {
 	Finished    bool      `json:"finished"`
 	FeltKey     string    `json:"felt_key,omitempty"` // name of the "I felt a stutter" key (2.5; empty = F10)
 	MarkKey     string    `json:"mark_key,omitempty"` // name of the "mark a part" key (2.5; empty = F11)
+	Test        bool      `json:"test,omitempty"`     // a test recording for the Optimise schedule: script time is measured for the whole run, not only in marked parts (2.5)
 }
 
 type LayerInfo struct {
