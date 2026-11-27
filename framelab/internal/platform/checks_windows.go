@@ -88,6 +88,13 @@ func displays() []DisplayFact {
 		if r, _, _ := enumDisp.Call(uintptr(unsafe.Pointer(n16)), 0, uintptr(unsafe.Pointer(&md[0])), 0); r != 0 {
 			d.Monitor = utf16Bytes(md[68:324])
 		}
+		// 2.5.3: the screen's own description (EDID) for its VRR minimum: the monitor's device interface
+		// \\?\DISPLAY#<model>#<instance>#{guid} -> HKLM\...\Enum\DISPLAY\<model>\<instance>\Device Parameters
+		mi := make([]byte, 840)
+		binary.LittleEndian.PutUint32(mi, 840)
+		if r, _, _ := enumDisp.Call(uintptr(unsafe.Pointer(n16)), 0, uintptr(unsafe.Pointer(&mi[0])), 1); r != 0 {
+			d.VRRMin = VRRMinFromEDID(monitorEDID(utf16Bytes(mi[328:584])))
+		}
 		dm := make([]byte, 220)
 		binary.LittleEndian.PutUint16(dm[68:], 220)
 		if r, _, _ := enumSet.Call(uintptr(unsafe.Pointer(n16)), uintptr(0xFFFFFFFF), uintptr(unsafe.Pointer(&dm[0]))); r != 0 {
@@ -109,6 +116,21 @@ func displays() []DisplayFact {
 		out = append(out, d)
 	}
 	return out
+}
+
+// monitorEDID: the EDID Windows keeps for a monitor, from its device interface path
+func monitorEDID(iface string) []byte {
+	parts := strings.Split(strings.TrimPrefix(iface, `\\?\`), "#")
+	if len(parts) < 3 || !strings.EqualFold(parts[0], "DISPLAY") {
+		return nil
+	}
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Enum\DISPLAY\`+parts[1]+`\`+parts[2]+`\Device Parameters`, registry.QUERY_VALUE)
+	if err != nil {
+		return nil
+	}
+	defer k.Close()
+	b, _, _ := k.GetBinaryValue("EDID")
+	return b
 }
 
 func utf16Bytes(b []byte) string {

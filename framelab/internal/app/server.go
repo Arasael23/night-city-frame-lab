@@ -92,6 +92,7 @@ var settingPages = map[string]string{
 	"defender":      "windowsdefender://threatsettings",
 	"pagefile":      "SystemPropertiesPerformance.exe",
 	"apps":          "ms-settings:appsfeatures",
+	"gsynctweaks":   gsyncPage, // 2.5.3: Orbmu2k's NVIDIA G-SYNC Tweaks (GitHub)
 }
 
 func str0(body map[string]any, k string) string { v, _ := body[k].(string); return v }

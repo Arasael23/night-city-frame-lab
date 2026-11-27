@@ -114,6 +114,9 @@ PC checks (no game needed)
   The PC and each build: display and frame limiters, injected DLLs, DLSS files, PCIe link, RAM
   speed, the game's drive, memory integrity, mod frameworks and debug logging left on, old tweaks.
   Each one says what it found and the steps to fix it yourself.
+  G-SYNC frame doubling (NVIDIA cards): whether the driver starts showing each frame twice well
+  above your screen's VRR minimum (brightness flicker on OLED, stutter around 60 fps), with the
+  steps to change it in Orbmu2k's free NVIDIA G-SYNC Tweaks.
   CPU temperature: from HWiNFO while it runs with "Shared Memory Support" on, or on AMD Ryzen
   through PawnIO (pawnio.eu, a signed driver you install yourself; Frame Lab never installs one).
 
@@ -159,8 +162,10 @@ Credits
   PawnIO module AMDFamily17 by namazso and contributors (LGPL-2.1, unchanged signed build).
   Mapping script functions to their .reds files at load is an idea from jekky's redscript-dap
   (MIT); the CET part reads LuaJIT's data layout (LuaJIT and Cyber Engine Tweaks are MIT). Game
-  function hashes come from ArchiveXL and RED4ext.SDK. Licences in components\licences and
-  components\THIRD_PARTY.txt.
+  function hashes come from ArchiveXL and RED4ext.SDK. The G-SYNC frame doubling value
+  (vrrFrameSplitBehavior) was found by u/PykeFeed on Reddit; how the driver uses it comes from the
+  notes of Orbmu2k's NVIDIA G-SYNC Tweaks (no code of it is used). Licences in components\licences
+  and components\THIRD_PARTY.txt.
 
 
 Licence

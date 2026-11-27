@@ -13,7 +13,7 @@ import (
 	"sync"
 )
 
-const Version = "2.5.2"
+const Version = "2.5.3"
 
 type BuildCfg struct {
 	Name string `json:"name"`

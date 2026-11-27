@@ -5,11 +5,20 @@ package platform
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
 // Dev build: sample facts so the Checks tab can be looked at off Windows.
 func ReadCheckFacts() CheckFacts {
+	f := devCheckFacts()
+	if hz, err := strconv.Atoi(os.Getenv("FRAMELAB_FAKE_HZ")); err == nil { // 2.5.3 dev: another screen
+		f.Displays[0].Monitor, f.Displays[0].Hz, f.Displays[0].MaxHz, f.Displays[0].VRRMin = "OLED monitor", hz, hz, 40
+	}
+	return f
+}
+
+func devCheckFacts() CheckFacts {
 	return CheckFacts{
 		Displays:  []DisplayFact{{Name: `\\.\DISPLAY1`, Monitor: "Hisense TV", Primary: true, Width: 3840, Height: 2160, Hz: 120, MaxHz: 120}},
 		RAM:       RAMFact{Known: true, Type: "DDR5", Modules: 2, SizeGB: 32, MTs: 6000, RatedMTs: 4800},

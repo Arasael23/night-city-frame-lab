@@ -39,7 +39,7 @@ func writerRoute(path string) bool {
 // writerCheck: Checks fixes that change Windows or game files (2.5E). 2.5 shows the steps instead.
 func writerCheck(id string) bool {
 	switch id {
-	case "fth_clear", "debug_off", "us_writable", "bcd_clear", "cpusets_clear":
+	case "fth_clear", "debug_off", "us_writable", "bcd_clear", "cpusets_clear", "gsync_lfc", "gsync_restart":
 		return true
 	}
 	return false

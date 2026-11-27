@@ -15,8 +15,9 @@ type DisplayFact struct {
 	Primary bool   `json:"primary"`
 	Width   int    `json:"width"`
 	Height  int    `json:"height"`
-	Hz      int    `json:"hz"`     // current refresh rate
-	MaxHz   int    `json:"max_hz"` // highest refresh rate offered at this resolution
+	Hz      int    `json:"hz"`      // current refresh rate
+	MaxHz   int    `json:"max_hz"`  // highest refresh rate offered at this resolution
+	VRRMin  int    `json:"vrr_min"` // lowest variable refresh rate the screen reports (EDID), 0 = not said
 }
 
 type RAMFact struct {

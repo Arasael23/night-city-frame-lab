@@ -134,6 +134,12 @@ func runChecks(cfg Config, b BuildCfg, p Paths) *ChecksReport {
 			g.Rows = append(g.Rows, row("display", name, fmt.Sprintf("%d Hz, the highest it offers%s", d.Hz, vrr), "fine", "Fine"))
 		}
 	}
+	gsOff := false // the driver profile keeps variable refresh off for the game
+	switch v := strings.ToLower(nvv["G-SYNC"]); {
+	case strings.HasPrefix(v, "fixed refresh"), strings.HasPrefix(v, "forced off"), strings.HasPrefix(v, "not allowed"):
+		gsOff = true
+	}
+	g.Rows = append(g.Rows, gsyncRows(f, gsOff, p)...) // 2.5.3
 	lim := []string{}
 	inGame := "off"
 	if on, _ := us["/video/display/MaximumFPS_OnOff"].(bool); on {
@@ -348,7 +354,7 @@ func runChecks(cfg Config, b BuildCfg, p Paths) *ChecksReport {
 	}
 	r.Groups = append(r.Groups, g)
 	editionRows(r)
-	undoIDs := map[string]string{"fth": "fth", "debuglog": "debuglog:" + game, "usro": "usro", "bcd": "bcd_clear", "cpusets": "cpusets_clear"}
+	undoIDs := map[string]string{"fth": "fth", "debuglog": "debuglog:" + game, "usro": "usro", "bcd": "bcd_clear", "cpusets": "cpusets_clear", "gsync": gsyncUndoID}
 	for gi := range r.Groups {
 		for ri := range r.Groups[gi].Rows {
 			r.Groups[gi].Rows[ri].UndoID = undoIDs[r.Groups[gi].Rows[ri].ID]
@@ -716,6 +722,10 @@ func (s *Server) checkAction(i int, id string) (string, error) {
 		}
 		undoAdd(s.Paths.Data, UndoEntry{ID: "usro", What: "UserSettings.json read-only", Kind: "readonly", Data: mustJSON(p)})
 		return "UserSettings.json is writable again.", nil
+	case Experimental && id == "gsync_lfc": // 2.5.3
+		return s.gsyncFix()
+	case Experimental && id == "gsync_restart":
+		return s.gsyncRestart()
 	case Experimental && (id == "bcd_clear" || id == "cpusets_clear"):
 		was, err := clearTweak(id)
 		if was != nil {

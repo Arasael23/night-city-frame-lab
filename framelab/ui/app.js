@@ -2098,7 +2098,9 @@ function exConfirm(x) {
 /* ------------------------------------------------------------------ checks */
 // read only, except the few fixes a row offers; every fix is kept in the undo journal
 const CK_CLASS = { fine: 'ok', check: 'chk', found: 'chk', info: 'nfo', na: 'na' };
-const CK_RISKY = { bcd_clear: 'changes the Windows boot settings (needs a restart). If BitLocker is on, have the recovery key at hand.', cpusets_clear: 'changes a Windows kernel setting (needs a restart).' };
+const CK_RISKY = { bcd_clear: 'changes the Windows boot settings (needs a restart). If BitLocker is on, have the recovery key at hand.', cpusets_clear: 'changes a Windows kernel setting (needs a restart).',
+  gsync_lfc: 'changes a hidden NVIDIA driver setting and restarts the display driver: every screen goes black for a few seconds. Close the game, OBS and other recording programs first.',
+  gsync_restart: 'restarts the display driver: every screen goes black for a few seconds. Close the game, OBS and other recording programs first.' };
 async function renderChecks(note, fresh) {
   const root = $('#tab-checks');
   if (!S.state) { root.innerHTML = '<div class="empty">Loading ...</div>'; return; }

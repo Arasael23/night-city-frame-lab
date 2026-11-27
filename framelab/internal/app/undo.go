@@ -17,7 +17,7 @@ import (
 type UndoEntry struct {
 	ID   string          `json:"id"`
 	What string          `json:"what"`
-	Kind string          `json:"kind"` // fth, files, readonly, bcd_clear, cpusets_clear
+	Kind string          `json:"kind"` // fth, files, readonly, bcd_clear, cpusets_clear, gsync
 	Data json.RawMessage `json:"data"`
 	At   time.Time       `json:"at"`
 }
@@ -115,6 +115,9 @@ func undoOne(data, id string) error {
 		if err := undoApply(e); err != nil {
 			return err
 		}
+		if e.Kind == "gsync" {
+			gsyncMarkPending(data) // the driver reads it at its next restart
+		}
 		return undoSave(data, append(l[:i:i], l[i+1:]...))
 	}
 	return errors.New("nothing to undo for " + id)
@@ -133,6 +136,9 @@ func undoAll(data string) (int, []string) {
 			errs = append(errs, l[i].What+": "+err.Error())
 			keep = append([]UndoEntry{l[i]}, keep...)
 			continue
+		}
+		if l[i].Kind == "gsync" {
+			gsyncMarkPending(data)
 		}
 		n++
 	}
@@ -178,6 +184,8 @@ func undoApply(e UndoEntry) error {
 			return err
 		}
 		return platform.RestoreBootTimer(m)
+	case "gsync":
+		return gsyncUndo(e)
 	case "cpusets_clear":
 		var b []byte
 		if err := json.Unmarshal(e.Data, &b); err != nil {
